@@ -1,0 +1,17 @@
+{
+  "name": "signguard-outlook-addin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SignGuard Outlook add-in: inserts signatures and verification codes",
+  "scripts": {
+    "certs": "office-addin-dev-certs install",
+    "start": "node serve.js",
+    "validate": "office-addin-manifest validate manifest.xml"
+  },
+  "dependencies": {
+    "office-addin-dev-certs": "^1.13.0"
+  },
+  "devDependencies": {
+    "office-addin-manifest": "^1.13.0"
+  }
+}

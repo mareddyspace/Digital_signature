@@ -1,0 +1,10 @@
+[
+  {"name": "Meera Iyer", "email": "meera.iyer@contoso.com", "job_title": "IT Manager", "department": "IT", "phone": "+91 80 4000 1001", "mobile": "+91 98450 10001", "manager_email": "", "role": "admin"},
+  {"name": "Arjun Rao", "email": "arjun.rao@contoso.com", "job_title": "Finance Director", "department": "Finance", "phone": "+91 80 4000 2001", "mobile": "+91 98450 20001", "manager_email": "meera.iyer@contoso.com", "role": "dept_admin", "scope_department": "Finance"},
+  {"name": "Priya Sharma", "email": "priya.sharma@contoso.com", "job_title": "Executive Assistant", "department": "Finance", "phone": "+91 80 4000 2002", "mobile": "", "manager_email": "arjun.rao@contoso.com", "role": "employee"},
+  {"name": "David Chen", "email": "david.chen@contoso.com", "job_title": "Accounts Payable Specialist", "department": "Finance", "phone": "+91 80 4000 2003", "mobile": "", "manager_email": "arjun.rao@contoso.com", "role": "employee"},
+  {"name": "Rahul Verma", "email": "rahul.verma@contoso.com", "job_title": "Sales Manager", "department": "Sales", "phone": "+91 80 4000 3001", "mobile": "+91 98450 30001", "manager_email": "meera.iyer@contoso.com", "role": "employee"},
+  {"name": "Sara Khan", "email": "sara.khan@contoso.com", "job_title": "Account Executive", "department": "Sales", "phone": "+91 80 4000 3002", "mobile": "+91 98450 30002", "manager_email": "rahul.verma@contoso.com", "role": "employee"},
+  {"name": "Kiran Patel", "email": "kiran.patel@contoso.com", "job_title": "Marketing Lead", "department": "Marketing", "phone": "", "mobile": "", "manager_email": "meera.iyer@contoso.com", "role": "employee"},
+  {"name": "Lena Fischer", "email": "lena.fischer@contoso.com", "job_title": "Compliance Officer", "department": "Legal", "phone": "+91 80 4000 4001", "mobile": "", "manager_email": "meera.iyer@contoso.com", "role": "auditor"}
+]

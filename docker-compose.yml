@@ -1,0 +1,17 @@
+# Optional: run PostgreSQL instead of the default local SQLite file.
+# Start with:  docker compose up -d db
+# Then set DATABASE_URL=postgresql+psycopg://signguard:signguard@localhost:5432/signguard
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: signguard
+      POSTGRES_PASSWORD: signguard
+      POSTGRES_DB: signguard
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

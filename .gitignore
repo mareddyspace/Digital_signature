@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.db
+*.db-journal
+.env
+node_modules/
+dist/
+*.pem
+*.pfx
+*.key

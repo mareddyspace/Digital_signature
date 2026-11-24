@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/ui.tsx","./src/pages/auditlog.tsx","./src/pages/compose.tsx","./src/pages/delegations.tsx","./src/pages/mytrust.tsx","./src/pages/people.tsx","./src/pages/permissions.tsx","./src/pages/policies.tsx","./src/pages/templates.tsx","./src/pages/trustcenter.tsx"],"version":"5.8.3"}
