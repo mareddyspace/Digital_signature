@@ -111,5 +111,7 @@ if (_static / "index.html").is_file():
             return JSONResponse({"detail": "Not Found"}, status_code=404)
         target = (_root / path).resolve()
         if path and target.is_file() and target.is_relative_to(_root):
-            return FileResponse(target)
+            # MSAL's redirect bridge page must never be cached (Microsoft's MSAL v5 guidance).
+            headers = {"Cache-Control": "no-store"} if target.name == "redirect.html" else None
+            return FileResponse(target, headers=headers)
         return FileResponse(_root / "index.html")  # client-side routes

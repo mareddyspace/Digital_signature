@@ -25,6 +25,9 @@ class Employee(Base):
     photo_url: Mapped[str] = mapped_column(String(500), default="")
     # admin | dept_admin | auditor | employee
     role: Mapped[str] = mapped_column(String(20), default="employee")
+    # Where `role` came from: "local" (set in SignGuard, e.g. sample data or BOOTSTRAP_ADMINS)
+    # or "entra" (an app role in the person's access token, re-checked on every sign-in).
+    role_source: Mapped[str] = mapped_column(String(10), default="local", server_default="local")
     # For dept_admin: the department they manage.
     scope_department: Mapped[str] = mapped_column(String(200), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)

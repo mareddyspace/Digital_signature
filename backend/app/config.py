@@ -46,6 +46,12 @@ class Settings:
     # the form Outlook add-in single sign-on requires.
     entra_api_audience_setting: str = os.getenv("ENTRA_API_AUDIENCE", "")
     entra_scope_name: str = os.getenv("ENTRA_SCOPE_NAME", "access_as_user")
+    # The admin web app's own app registration (a single-page application, no secret). Public value.
+    entra_spa_client_id: str = os.getenv("ENTRA_SPA_CLIENT_ID", "")
+    # Off by default: Microsoft says never to authorize by email or preferred_username. Turn on only
+    # to link SignGuard records that have no Entra object ID yet (sample or older records) to the
+    # Microsoft account signing in with the same address in your own tenant, once each.
+    entra_link_by_email: bool = os.getenv("ENTRA_LINK_BY_EMAIL", "").lower() == "true"
     # Email domains that count as "internal" for signature policies.
     internal_domains: list[str] = field(
         default_factory=lambda: _list(os.getenv("INTERNAL_DOMAINS", "contoso.com"))
@@ -123,7 +129,8 @@ def problems(s: Settings) -> list[str]:
             "(or set ALLOW_DEV_AUTH_ONLINE=true for a private test only)."
         )
     if s.auth_mode == "entra":
-        for name, value in (("ENTRA_TENANT_ID", s.entra_tenant_id), ("ENTRA_API_CLIENT_ID", s.entra_api_client_id)):
+        for name, value in (("ENTRA_TENANT_ID", s.entra_tenant_id), ("ENTRA_API_CLIENT_ID", s.entra_api_client_id),
+                            ("ENTRA_SPA_CLIENT_ID", s.entra_spa_client_id)):
             if not value:
                 found.append(f"{name} is required when AUTH_MODE=entra")
     if not s.is_local and s.code_secret == DEV_CODE_SECRET:

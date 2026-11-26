@@ -128,6 +128,30 @@ While `AUTH_MODE=dev`, the add-in identifies you by your mailbox address. That i
    ```
 3. Delete `backend/signguard.db`, start the backend, and use **People → Sync directory now**.
 
+### Microsoft Entra ID sign-in (AUTH_MODE=entra)
+
+The admin web signs people in with Microsoft (MSAL, authorization code with PKCE; no secret in the browser), and every API call carries an access token. The backend validates the token's signature, audience, issuer, tenant, expiry and `access_as_user` scope, identifies the person by their Entra object ID (`oid`), and takes their role from the token's app roles. `X-Dev-User` is refused in this mode.
+
+1. **SignGuard API** app registration (single tenant):
+   - **Expose an API**: set the Application ID URI (e.g. `api://<API client id>`) and add the delegated scope `access_as_user`.
+   - **App roles** (allowed member types: Users/Groups), values exactly: `SignGuard.Admin`, `SignGuard.DepartmentAdmin`, `SignGuard.Auditor`. People with no role are employees.
+   - In the API's manifest, set `requestedAccessTokenVersion` to `2`.
+2. **SignGuard admin web** app registration (single tenant):
+   - **Authentication → Add a platform → Single-page application**, redirect URI `http://localhost:5173/redirect.html` (and your public URL + `/redirect.html` when hosted).
+   - **API permissions → Add → My APIs → SignGuard API → Delegated → access_as_user**, then grant admin consent. No Microsoft Graph permission is needed for sign-in.
+3. **Enterprise applications → SignGuard API → Users and groups**: assign people (or groups, which needs Microsoft Entra ID P1) to the app roles.
+4. Set before starting the backend (IDs only; no secret is needed for sign-in):
+   ```powershell
+   $env:AUTH_MODE = "entra"
+   $env:ENTRA_TENANT_ID = "<tenant id>"
+   $env:ENTRA_API_CLIENT_ID = "<SignGuard API client id>"
+   $env:ENTRA_API_AUDIENCE = "api://<SignGuard API client id>"
+   $env:ENTRA_SPA_CLIENT_ID = "<admin web client id>"
+   ```
+5. People must exist in SignGuard with their object ID, which directory sync fills in. Until then, `ENTRA_LINK_BY_EMAIL=true` links an existing record to the Microsoft account with the same address, once; leave it off otherwise.
+
+Roles: an app role in the token always wins and is stored with `role_source = entra`. If it's later removed in Entra ID, the person becomes an employee at their next sign-in. People whose role was set in SignGuard (`role_source = local`, e.g. `BOOTSTRAP_ADMINS`) keep it while their token has no SignGuard app role.
+
 ### Connect Google Workspace
 
 1. In Google Cloud, create a service account, enable the **Gmail API** and **Admin SDK API**, and download a JSON key.
@@ -151,7 +175,7 @@ Run `workers/export-mailbox-permissions.ps1` (needs the `ExchangeOnlineManagemen
 
 ## Not built yet
 
-- Entra ID sign-in in the admin app and add-in (`AUTH_MODE=entra` is implemented in the backend; the front ends still send the dev header).
+- Entra ID sign-in in the Outlook add-in (the admin web signs in with Microsoft; the add-in still sends the dev header).
 - Running the Exchange scripts automatically from a worker; today approvals are recorded and the scripts are run by hand.
 - Last-used dates from the mailbox audit log, and grant dates (the export can't read them).
 - Multiple companies in one deployment.

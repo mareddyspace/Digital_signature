@@ -1,4 +1,6 @@
 // Small API client. In dev mode the backend trusts the X-Dev-User header; the user switcher sets it.
+// In entra mode every call carries a Microsoft access token instead (see auth.ts).
+import { accessToken, authMode, identityHeaders } from "./auth";
 
 const USER_KEY = "signguard.devUser";
 
@@ -35,10 +37,15 @@ function detailText(detail: unknown): string {
   return "Something went wrong";
 }
 
+async function authHeaders(): Promise<Record<string, string>> {
+  const mode = authMode();
+  return identityHeaders(mode, getDevUser(), mode === "entra" ? await accessToken() : null);
+}
+
 export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method: options.method ?? (options.body === undefined ? "GET" : "POST"),
-    headers: { "Content-Type": "application/json", "X-Dev-User": getDevUser() },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   if (!res.ok) {
@@ -54,7 +61,7 @@ export async function api<T = unknown>(path: string, options: { method?: string;
 }
 
 export async function download(path: string, filename: string) {
-  const res = await fetch(`/api${path}`, { headers: { "X-Dev-User": getDevUser() } });
+  const res = await fetch(`/api${path}`, { headers: await authHeaders() });
   if (!res.ok) throw new ApiError(res.status, res.statusText);
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement("a");
@@ -83,6 +90,13 @@ export interface Employee {
   role: string;
   data_issues: string[];
   synced_at: string;
+}
+
+/** GET /api/me: the signed-in person, plus where their role came from. */
+export interface Me extends Employee {
+  role_source: "local" | "entra";
+  auth_mode: "dev" | "entra";
+  identity: { object_id: string; tenant_id: string; sign_in_name: string | null; app_roles: string[] } | null;
 }
 
 export interface Delegation {

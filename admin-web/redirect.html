@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Signing in…</title>
+  </head>
+  <body>
+    <!-- MSAL v5 redirect bridge: Microsoft sends the sign-in response here, and this page hands it
+         back to SignGuard. It must be the redirect URI in the app registration, served from
+         SignGuard's own origin without caching. -->
+    <script type="module" src="/src/redirect.ts"></script>
+  </body>
+</html>

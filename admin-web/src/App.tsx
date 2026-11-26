@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useMatch } from "react-router-dom";
 
-import { api, getDevUser, setDevUser, type Employee } from "./api";
+import { api, getDevUser, setDevUser, type Me } from "./api";
+import { signIn, signOut, type AuthState } from "./auth";
 
 import Home from "./pages/Home";
 import Signatures from "./pages/Signatures";
@@ -104,9 +105,39 @@ function initials(name: string) {
   return name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("") || "U";
 }
 
-export default function App() {
-  const [user, setUser] = useState(getDevUser());
-  const [me, setMe] = useState<Employee | null>(null);
+export default function App({ auth }: { auth: AuthState }) {
+  if (auth.mode === "entra" && !auth.account) return <SignIn error={auth.error} />;
+  return <SignedIn auth={auth} />;
+}
+
+/** Shown in AUTH_MODE=entra until the person has signed in with Microsoft. */
+function SignIn({ error }: { error: string | null }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="signin">
+      <div className="signin-card">
+        <div className="header-brand">
+          <svg viewBox="0 0 40 40" width="26" height="26" aria-hidden="true">
+            <path d="M20 3L34 8V19C34 28 28 34 20 38C12 34 6 28 6 19V8L20 3Z" fill="currentColor" />
+            <path d="M13 20L18 25L28 14" stroke="#fff" strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          SignGuard
+        </div>
+        <h1>Sign in</h1>
+        <p className="sub">Use your work Microsoft account. What you can do in SignGuard comes from the roles your administrator assigns in Microsoft Entra ID.</p>
+        {error && <div className="note bad" role="alert">{error}</div>}
+        <button disabled={busy} onClick={() => { setBusy(true); signIn().catch(() => setBusy(false)); }}>
+          {busy ? "Opening Microsoft sign-in…" : "Sign in with Microsoft"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SignedIn({ auth }: { auth: AuthState }) {
+  const entra = auth.mode === "entra";
+  const [user, setUser] = useState(entra ? auth.account?.homeAccountId ?? "" : getDevUser());
+  const [me, setMe] = useState<Me | null>(null);
   const [users, setUsers] = useState<DevUser[]>([]);
   const [counts, setCounts] = useState<Counts | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,13 +148,13 @@ export default function App() {
   const editing = useMatch("/signatures/:id");
 
   const [demo, setDemo] = useState(false);
-  useEffect(() => { api<DevUser[]>("/dev/users").then(setUsers).catch(() => setUsers([])); }, []);
+  useEffect(() => { if (!entra) api<DevUser[]>("/dev/users").then(setUsers).catch(() => setUsers([])); }, [entra]);
   useEffect(() => { api<{ demo_read_only?: boolean }>("/health").then((h) => setDemo(!!h.demo_read_only)).catch(() => setDemo(false)); }, []);
 
   useEffect(() => {
     setMe(null);
     setError(null);
-    api<Employee>("/me").then(setMe).catch((e: Error) => setError(e.message));
+    api<Me>("/me").then(setMe).catch((e: Error) => setError(e.message));
   }, [user]);
 
   // Counts in the sidebar: things waiting for a decision. Refreshed on navigation.
@@ -143,7 +174,7 @@ export default function App() {
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [menuOpen]);
 
-  const switchUser = (email: string) => { setDevUser(email); setUser(email); setMenuOpen(false); };
+  const switchUser = (email: string) => { if (entra) return; setDevUser(email); setUser(email); setMenuOpen(false); };
   const visible = (i: Item) => !i.roles || (me && i.roles.includes(me.role));
   const isStaff = !!me && READ.includes(me.role);
   const home = isStaff ? "/home" : "/my-trust";
@@ -166,7 +197,7 @@ export default function App() {
           <span className="header-spacer" />
           {demo
             ? <span className="env-pill" title="Sample data. Switch accounts to see each role; nothing you change is saved.">Read-only demo</span>
-            : users.length > 0 && <span className="env-pill" title="AUTH_MODE=dev: anyone can act as any user. Use Entra sign-in in production.">Dev sign-in</span>}
+            : !entra && users.length > 0 && <span className="env-pill" title="AUTH_MODE=dev: anyone can act as any user. Use Entra sign-in in production.">Dev sign-in</span>}
           <div className="account" ref={menuRef}>
             <button className="account-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
               <span className="avatar">{initials(displayName)}</span>
@@ -177,7 +208,17 @@ export default function App() {
                 <NavLink to="/my-trust" className="menu-item" role="menuitem">My signature and access</NavLink>
                 <NavLink to="/compose" className="menu-item" role="menuitem">Outlook simulator</NavLink>
                 <a href="/verify" target="_blank" rel="noreferrer" className="menu-item" role="menuitem">Public verify page ↗</a>
-                {users.length > 0 && (
+                {entra && (
+                  <>
+                    <hr />
+                    <div className="menu-section">
+                      {me?.identity?.sign_in_name ?? auth.account?.username}
+                      {me && <small>{me.role_source === "entra" ? "Role from Microsoft Entra ID" : "Role set in SignGuard"}</small>}
+                    </div>
+                    <button className="menu-item" role="menuitem" onClick={() => { signOut().catch(() => undefined); }}>Sign out</button>
+                  </>
+                )}
+                {!entra && users.length > 0 && (
                   <>
                     <hr />
                     <div className="menu-section">Switch demo account</div>
@@ -233,7 +274,10 @@ export default function App() {
 
       <main className="main" key={user}>
         {error && (
-          <div className="note bad" role="alert">Can't reach SignGuard as {user}: {error}. Is the backend running on port 8000?</div>
+          entra
+            ? <div className="note bad row between" role="alert"><span>Signed in with Microsoft, but SignGuard refused it: {error}</span>
+                <button className="secondary" onClick={() => { signOut().catch(() => undefined); }}>Sign out</button></div>
+            : <div className="note bad" role="alert">Can't reach SignGuard as {user}: {error}. Is the backend running on port 8000?</div>
         )}
         {me && (
           <Routes>

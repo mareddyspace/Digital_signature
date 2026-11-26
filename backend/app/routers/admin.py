@@ -5,14 +5,14 @@ import json
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import audit, automation, compliance, deployments, designer, directory, extras, integrity, signature, trust
-from ..auth import ADMIN, ADMIN_OR_DEPT, CAN_READ_AUDIT, current_user, require_role
+from ..auth import ADMIN, ADMIN_OR_DEPT, APP_ROLES, CAN_READ_AUDIT, current_user, require_role
 from ..db import get_db
 from ..models import (
     AuditEvent,
@@ -47,8 +47,34 @@ def employee_out(e: Employee) -> dict:
 
 
 @router.get("/me")
-def me(user: Employee = Depends(current_user)):
-    return employee_out(user)
+def me(request: Request, user: Employee = Depends(current_user)):
+    """The signed-in person, their SignGuard role and where it came from."""
+    claims = getattr(request.state, "token_claims", None) or {}
+    return {
+        **employee_out(user),
+        "role_source": user.role_source,
+        "auth_mode": settings.auth_mode,
+        # Only in entra mode: what Microsoft said about this sign-in.
+        "identity": {
+            "object_id": claims.get("oid"),
+            "tenant_id": claims.get("tid"),
+            "sign_in_name": claims.get("preferred_username") or claims.get("upn"),
+            "app_roles": [r for r in claims.get("roles") or [] if r in APP_ROLES],
+        } if claims else None,
+    }
+
+
+@router.get("/auth/config")
+def auth_config():
+    """Public sign-in settings for the admin web (identifiers only; never secrets)."""
+    if settings.auth_mode != "entra":
+        return {"mode": settings.auth_mode}
+    return {
+        "mode": "entra",
+        "tenant_id": settings.entra_tenant_id,
+        "client_id": settings.entra_spa_client_id,
+        "scopes": [settings.entra_api_scope],
+    }
 
 
 @router.get("/employees")

@@ -488,3 +488,11 @@ details summary { cursor: pointer; color: var(--accent); font-weight: 600; }
   .campaign-grid { grid-template-columns: minmax(0, 1fr); }
 }
 .form-grid label .seg, .field .seg, .pp-field .seg { align-self: flex-start; }
+
+/* Microsoft sign-in screen (AUTH_MODE=entra) */
+.signin { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+.signin-card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px; display: flex; flex-direction: column; gap: 12px; }
+.signin-card h1 { margin: 8px 0 0; font-size: 20px; }
+.signin-card .sub { margin: 0; }
+.signin-card button { align-self: flex-start; }
+.menu-section small { display: block; font-weight: 400; margin-top: 2px; }

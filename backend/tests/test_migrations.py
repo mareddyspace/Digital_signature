@@ -22,7 +22,7 @@ def _engine():
 
 def test_fresh_database_upgrades_to_head_and_matches_models():
     engine = _engine()
-    assert migrate.upgrade(engine) == "0001_baseline"
+    assert migrate.upgrade(engine) == migrate.head_revision()
     with engine.connect() as conn:
         diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
     # Empty means the migrations build exactly what the models describe. If this fails after a
@@ -30,21 +30,50 @@ def test_fresh_database_upgrades_to_head_and_matches_models():
     assert diff == []
 
 
-def test_existing_database_without_history_is_stamped_and_keeps_its_data():
+def _pre_migrations_database():
+    """A database exactly as SignGuard made them before migrations: the 0001 baseline schema
+    (identical to the old create_all output) with no alembic_version table."""
+    from alembic import command
+
     engine = _engine()
-    Base.metadata.create_all(engine)  # how SignGuard made databases before migrations
+    with engine.begin() as conn:
+        command.upgrade(migrate._config(conn), migrate.BASELINE)
+        conn.execute(text("DROP TABLE alembic_version"))
+    return engine
+
+
+def test_existing_database_without_history_is_stamped_and_keeps_its_data():
+    engine = _pre_migrations_database()
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('k', 'kept', 'test', CURRENT_TIMESTAMP)"))
-    assert migrate.upgrade(engine) == "0001_baseline"
+        conn.execute(text(
+            "INSERT INTO employees (name, email, job_title, department, phone, mobile, manager_email, photo_url, "
+            "role, scope_department, active, synced_at) VALUES ('Old Admin', 'old@contoso.com', '', '', '', '', '', '', "
+            "'admin', '', 1, CURRENT_TIMESTAMP)"))
+    assert "role_source" not in {c["name"] for c in inspect(engine).get_columns("employees")}
+    assert migrate.upgrade(engine) == migrate.head_revision()
     with engine.connect() as conn:
         assert conn.execute(text("SELECT value FROM settings WHERE key='k'")).scalar() == "kept"
+        # Existing people keep their role, recorded as set in SignGuard.
+        assert conn.execute(text("SELECT role, role_source FROM employees WHERE email='old@contoso.com'")).one() == ("admin", "local")
     assert "alembic_version" in inspect(engine).get_table_names()
+
+
+def test_role_source_migration_can_be_undone():
+    from alembic import command
+
+    engine = _engine()
+    migrate.upgrade(engine)
+    with engine.begin() as conn:
+        command.downgrade(migrate._config(conn), migrate.BASELINE)
+    assert "role_source" not in {c["name"] for c in inspect(engine).get_columns("employees")}
+    assert migrate.upgrade(engine) == migrate.head_revision()
 
 
 def test_upgrade_is_safe_to_run_twice():
     engine = _engine()
     migrate.upgrade(engine)
-    assert migrate.upgrade(engine) == "0001_baseline"
+    assert migrate.upgrade(engine) == migrate.head_revision()
 
 
 def test_app_refuses_an_outdated_schema_until_migrated():
