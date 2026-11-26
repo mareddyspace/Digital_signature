@@ -112,7 +112,7 @@ input#code{font-family:ui-monospace,Consolas,monospace;letter-spacing:1px;text-t
 small{color:var(--quiet)}button{margin-top:20px;width:100%;padding:12px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:16px;font-weight:600;cursor:pointer}
 .result{margin-top:20px;border-radius:10px;padding:16px;display:none}.result h2{font-size:18px;margin:0 0 6px}
 .verified{display:block;background:var(--okbg);color:var(--ok)}.warning{display:block;background:var(--badbg);color:var(--bad)}.result p{color:var(--ink);margin:0}
-.tip{margin-top:20px;font-size:14px}
+.tip{margin-top:20px;font-size:14px}details{margin-top:22px;border-top:1px solid var(--line);padding-top:14px}summary{cursor:pointer;font-weight:600;color:var(--accent)}
 </style></head><body><main><div class="card">
 <h1>Check an email from {{company}}</h1>
 <p>Emails from {{company}} end with a code like <b>SG-7K4P-Q2MX</b>. Enter it to confirm who really sent the email.</p>
@@ -121,6 +121,13 @@ small{color:var(--quiet)}button{margin-top:20px;width:100%;padding:12px;border:0
 <input id="email" type="email" autocomplete="email">
 <button type="submit">Check</button></form>
 <div id="r" class="result" role="status" aria-live="polite"><h2 id="rt"></h2><p id="rm"></p></div>
+<details id="sigbox"><summary>Also check the signature details weren't changed</summary>
+<p style="margin-top:10px">Fraudsters often keep a real code but change the phone number or bank details. Paste the signature block from the email (or the whole email) and we'll compare it with what was issued.</p>
+<form id="sf"><label for="sig">Signature from the email</label>
+<textarea id="sig" rows="6" required style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font:14px/1.4 system-ui;background:var(--bg);color:var(--ink)"></textarea>
+<button type="submit">Compare signature</button></form>
+<div id="sr" class="result" role="status" aria-live="polite"><h2 id="srt"></h2><p id="srm"></p><ul id="srl" style="margin:8px 0 0;padding-left:18px"></ul></div>
+</details>
 <p class="tip">Always type this page's address yourself. Don't trust a link in the email to take you here.</p>
 </div></main>
 <script>
@@ -139,6 +146,29 @@ document.getElementById('f').addEventListener('submit', async (e) => {
     r.className = 'result warning';
     document.getElementById('rt').textContent = 'Could not check the code';
     document.getElementById('rm').textContent = String(err.message || err);
+  }
+});
+document.getElementById('sf').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = document.getElementById('sr'), list = document.getElementById('srl');
+  list.innerHTML = '';
+  const body = {code: document.getElementById('code').value, signature: document.getElementById('sig').value};
+  try {
+    const res = await fetch('/api/verify/signature', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if (!res.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Enter the code above first');
+    r.className = 'result ' + data.tone;
+    document.getElementById('srt').textContent = data.title;
+    document.getElementById('srm').textContent = data.message;
+    for (const a of (data.altered || [])) {
+      const li = document.createElement('li');
+      li.textContent = 'Changed: "' + a.received + '"';
+      list.appendChild(li);
+    }
+  } catch (err) {
+    r.className = 'result warning';
+    document.getElementById('srt').textContent = 'Could not compare the signature';
+    document.getElementById('srm').textContent = String(err.message || err);
   }
 });
 </script></body></html>"""

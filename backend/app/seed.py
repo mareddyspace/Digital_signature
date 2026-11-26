@@ -4,9 +4,16 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import directory
+import json
+
+from . import designer, directory, integrity
 from .config import settings
 from .models import (
+    BrandKit,
+    Campaign,
+    Disclaimer,
+    Setting,
+    TemplateDesign,
     Employee,
     MailboxPermission,
     SignaturePolicy,
@@ -92,3 +99,63 @@ def seed(db: Session) -> None:
                 last_used=used, first_seen=granted, source="sample",
             ))
         db.commit()
+
+
+PLATFORM_SEED_KEY = "seed.platform_v2"
+
+EXTERNAL_DISCLAIMER = (
+    "This email and any attachments are confidential and intended only for the named recipients. "
+    "If you received it by mistake, please tell the sender and delete it. {company} never asks for "
+    "passwords or payment changes by email."
+)
+
+
+def seed_platform(db: Session) -> None:
+    """Brand kit, a designer-built template, a disclaimer and a banner. Runs once per database,
+    including databases created before these features existed."""
+    if db.get(Setting, PLATFORM_SEED_KEY) is not None:
+        integrity.seal_unsealed_live_versions(db)
+        return
+    company = settings.company_name
+    if db.get(BrandKit, 1) is None:
+        sample = settings.directory_source == "sample"
+        db.add(BrandKit(
+            id=1, company_name=company, primary_color="#2878d0", secondary_color="#11263f",
+            accent_color="#16865b", palette="#eaf3ff", font_family="Arial, Helvetica, sans-serif",
+            website="https://www.contoso.com" if sample else "",
+            linkedin_url="https://www.linkedin.com/company/contoso" if sample else "",
+            address="Prestige Tech Park, Bengaluru 560103" if sample else "",
+        ))
+
+    # A template made in the designer, so the drag-and-drop editor has something to open.
+    if db.scalar(select(Template.id).where(Template.name == "Modern brand")) is None:
+        design = designer.starter("split", {"primary_color": "#2878d0", "secondary_color": "#11263f"})
+        html = designer.compile_design(design)
+        now = utcnow()
+        t = Template(name="Modern brand", description="Two-column design with social links and banner slot (made in the designer)", created_by="seed")
+        db.add(t)
+        db.flush()
+        v = TemplateVersion(template_id=t.id, number=1, html=html, status="live", created_by="seed",
+                            decided_by="seed", decided_at=now)
+        db.add(v)
+        db.flush()
+        t.live_version_id = v.id
+        db.add(TemplateDesign(version_id=v.id, design_json=json.dumps(design)))
+        if settings.directory_source == "sample":
+            db.add(SignaturePolicy(name="Marketing to outside", priority=20, departments="Marketing",
+                                   recipient_type="external", message_type="any", template_id=t.id))
+
+    if db.scalar(select(Disclaimer.id).limit(1)) is None:
+        db.add(Disclaimer(name="External confidentiality", text=EXTERNAL_DISCLAIMER.format(company=company),
+                          recipient_type="external", priority=50))
+    if settings.directory_source == "sample" and db.scalar(select(Campaign.id).limit(1)) is None:
+        db.add(Campaign(
+            name="Q4 product webinar", headline="Join our live product webinar",
+            body="See what's new in the Contoso platform. 30 minutes, with Q&A.",
+            cta_text="Register", link_url="https://www.contoso.com/webinar",
+            departments="Sales", recipient_type="external",
+            starts_at=utcnow() - timedelta(days=1), ends_at=utcnow() + timedelta(days=60),
+        ))
+    db.add(Setting(key=PLATFORM_SEED_KEY, value="done", updated_by="seed"))
+    db.commit()
+    integrity.seal_unsealed_live_versions(db)

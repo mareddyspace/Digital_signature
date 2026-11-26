@@ -44,7 +44,7 @@ export default function Permissions({ me }: { me: Employee }) {
 
   return (
     <Page
-      title="Mailbox permissions"
+      title="Mailbox access"
       intro="Everyone who can read or send from someone else's mailbox. Flagged grants have no approval in SignGuard, are old, or are never used."
       actions={
         isAdmin && (
@@ -58,7 +58,7 @@ export default function Permissions({ me }: { me: Employee }) {
       <ErrorNote error={list.error ?? error} />
       {notice && <div className="note good">{notice}</div>}
       <p className="summary"><strong>{flagged}</strong> of {rows.length} grants need a decision. <label className="inline"><input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} /> Show removed</label></p>
-      <table>
+      <div className="card flush table-wrap"><table>
         <thead><tr><th>Mailbox</th><th>Who has access</th><th>Access</th><th>Granted</th><th>Last used</th><th>Flags</th>{isAdmin && <th>Decision</th>}</tr></thead>
         <tbody>
           {rows.map((p) => (
@@ -85,7 +85,7 @@ export default function Permissions({ me }: { me: Employee }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <p className="sub">Sample data is shown until you import real grants with <code>workers/export-mailbox-permissions.ps1</code>.</p>
     </Page>
   );

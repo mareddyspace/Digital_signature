@@ -77,7 +77,14 @@ SYNCED_FIELDS = (
 
 def sync(db: Session, actor: str = "system") -> dict[str, int]:
     """Upsert employees by email; mark missing ones inactive. Roles are kept."""
-    people = load_graph() if settings.directory_source == "graph" else load_sample()
+    if settings.directory_source == "graph":
+        people = load_graph()
+    elif settings.directory_source == "google":
+        from . import google_workspace
+
+        people = google_workspace.load_directory()
+    else:
+        people = load_sample()
     existing = {e.email: e for e in db.scalars(select(Employee))}
     seen: set[str] = set()
     created = updated = 0

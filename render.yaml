@@ -1,0 +1,17 @@
+# Render Blueprint for the public, read-only SignGuard demo (sample data, no Microsoft 365).
+# Render: New > Blueprint > pick this repository. The free plan sleeps when idle and resets its data.
+services:
+  - type: web
+    name: signguard-demo
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DEMO_READ_ONLY
+        value: "true"
+      - key: AUTH_MODE
+        value: dev
+      - key: DIRECTORY_SOURCE
+        value: sample
+      - key: CODE_SECRET
+        generateValue: true

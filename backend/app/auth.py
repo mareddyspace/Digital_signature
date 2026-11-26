@@ -22,21 +22,33 @@ def _jwks_client() -> jwt.PyJWKClient:
 
 
 def _email_from_token(token: str) -> str:
+    """Validate an access token for the SignGuard API and return the signed-in user's address.
+
+    Accepts v2 tokens (admin app via MSAL: audience = client id) and v1 tokens (Outlook add-in
+    single sign-on: audience = Application ID URI), both issued by our tenant.
+    """
     try:
         key = _jwks_client().get_signing_key_from_jwt(token).key
         claims = jwt.decode(
             token,
             key,
             algorithms=["RS256"],
-            audience=settings.entra_api_audience or settings.entra_api_client_id,
+            audience=[settings.entra_api_audience, settings.entra_api_client_id],
             issuer=[
                 f"https://login.microsoftonline.com/{settings.entra_tenant_id}/v2.0",
                 f"https://sts.windows.net/{settings.entra_tenant_id}/",
             ],
+            options={"require": ["exp", "iss", "aud"]},
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Invalid token: {exc}") from exc
-    email = claims.get("preferred_username") or claims.get("upn") or claims.get("email")
+    scopes = (claims.get("scp") or "").split()
+    if settings.entra_scope_name not in scopes:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token is not for SignGuard (missing scope)")
+    email = (
+        claims.get("preferred_username") or claims.get("upn")
+        or claims.get("unique_name") or claims.get("email")
+    )
     if not email:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token has no user name claim")
     return email.lower()
@@ -48,6 +60,7 @@ def current_user(
     x_dev_user: str | None = Header(default=None),
 ) -> Employee:
     if settings.auth_mode == "entra":
+        # X-Dev-User is ignored here: only a valid token identifies the caller.
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
         email = _email_from_token(authorization.split(" ", 1)[1])

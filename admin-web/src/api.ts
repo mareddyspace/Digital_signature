@@ -135,3 +135,113 @@ export interface AuditEvent {
   details: Record<string, unknown>;
   created_at: string;
 }
+
+// ---------- signature platform ----------
+
+export interface ComplianceIssue {
+  severity: "critical" | "error" | "warning" | "info";
+  rule: string;
+  message: string;
+}
+
+export interface ComplianceReport {
+  score: number;
+  grade: string;
+  issues: ComplianceIssue[];
+  passed: string[];
+  blocking: boolean;
+}
+
+export type BlockType =
+  | "logo" | "photo" | "name" | "title" | "contact" | "text" | "divider" | "spacer"
+  | "social" | "address" | "button" | "delegation" | "verification" | "banner" | "disclaimer";
+
+export interface DesignBlock {
+  id: string;
+  type: BlockType;
+  col: "left" | "right";
+  props: Record<string, unknown>;
+}
+
+export interface DesignSettings {
+  layout: "stack" | "split";
+  font: string;
+  text_color: string;
+  accent: string;
+  muted?: string;
+  width: number;
+  font_size: number;
+  divider?: boolean;
+}
+
+export interface Design {
+  settings: DesignSettings;
+  blocks: DesignBlock[];
+}
+
+export interface Brand {
+  company_name: string;
+  primary_color: string;
+  secondary_color: string;
+  accent_color: string;
+  palette: string;
+  font_family: string;
+  logo_url: string;
+  logo_width: number;
+  website: string;
+  address: string;
+  linkedin_url: string;
+  twitter_url: string;
+  facebook_url: string;
+  instagram_url: string;
+  youtube_url: string;
+  max_width: number;
+  require_logo: boolean;
+  enforce_compliance: boolean;
+  min_compliance_score: number;
+  fonts: string[];
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface Campaign {
+  id: number;
+  name: string;
+  headline: string;
+  body: string;
+  cta_text: string;
+  link_url: string;
+  image_url: string;
+  alt_text: string;
+  background: string;
+  text_color: string;
+  departments: string;
+  recipient_type: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  priority: number;
+  enabled: boolean;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  state: string;
+  preview_html: string;
+}
+
+export interface Disclaimer {
+  id: number;
+  name: string;
+  text: string;
+  departments: string;
+  recipient_type: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface AiVariant {
+  name: string;
+  rationale: string;
+  design: Design;
+  html: string;
+  compliance: ComplianceReport;
+}

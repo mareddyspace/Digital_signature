@@ -9,6 +9,19 @@ SignGuard does what signature tools do (templates, directory data, rules, an Out
 - **Sender verification codes**: external emails carry a code like `SG-7K4P-Q2MX` that recipients check on a public page.
 - **Trust Center** home screen, **My Trust** page for every employee, and an append-only **audit trail**.
 
+### Signature platform
+
+- **Drag-and-drop designer** (Templates & Designer): build signatures from blocks (logo, photo, name, title, contact, social, button, banner and disclaimer slots…), one or two columns, with a live preview rendered for any employee on desktop or mobile. The output is table-based, inline-styled HTML that Outlook and Gmail render the same way. Hand-written HTML templates still work.
+- **AI Studio**: describe a signature in plain English and get three on-brand designs, each compliance-scored. Uses Claude when `ANTHROPIC_API_KEY` is set; otherwise a built-in rules engine (works offline). The AI returns designer layouts, never raw HTML.
+- **Brand kit and compliance checker**: logo, colours, font, links and rules in one place. Every template gets a 0–100 score (email safety, required fields, brand colours and font, logo, width, readability and contrast, image alt text, secure links, verification code). Optionally block submission below a minimum score.
+- **Campaign banners** by department, recipient type and dates, with view and click tracking (`/r/c/<id>` redirects only to the stored link).
+- **Legal disclaimers** added by rule (department, internal/external), positioned by a template marker or appended.
+- **Department assignments**: a matrix of which template, banner and disclaimers each department gets for new/reply, internal/external email.
+- **Signature integrity**: approved versions are sealed (HMAC-SHA256); a version changed outside approval is never used and raises an alert. Each external email's signature is recorded with its verification code, so recipients can paste a signature on the public verify page and see whether details such as a phone number were altered.
+- **Automation**: findings with one-click fixes (policies that never apply, departments with no external signature, off-brand or tampered templates, ended banners) and scheduled jobs (end banners on their end date, starter policies for new departments, optional push to Gmail on approval).
+- **Integrations and deployment**: Microsoft 365 (Graph directory + Outlook add-in, plus a static-signature export applied with `workers/deploy-outlook-signatures.ps1`) and Google Workspace (Admin SDK directory + Gmail signature push via a service account). Without credentials, Google deployments run in simulated mode.
+- **Analytics**: signatures per day, coverage, usage by template and department, banner click-through, verification checks.
+
 ## Project layout
 
 | Folder | What it is |
@@ -21,6 +34,15 @@ SignGuard does what signature tools do (templates, directory data, rules, an Out
 ## Run it locally (no Microsoft 365 needed)
 
 You need Python 3.12+ and Node.js 20+.
+
+From the repository root, the quickest Windows setup is:
+
+```powershell
+.\run.ps1
+```
+
+This opens the backend on port 8000 and the admin web app on port 5173.
+To use separate terminals instead:
 
 ```powershell
 cd backend
@@ -49,7 +71,10 @@ Run the tests with `backend\.venv\Scripts\python -m pytest backend/tests`.
 4. In **Delegations**, Priya requests to send for Arjun for a week. Switch to **Arjun Rao** and approve it.
 5. Back as Priya, write from Arjun's mailbox again: the signature now says "on behalf of Arjun Rao, Finance Director". Send it.
 6. Click **Check as the real recipient** (Verified), **Check as someone else who copied it** (warning), and **Check a fake email's code** (warning). The public page is at http://localhost:5173/verify.
-7. As Meera, open **Mailbox permissions** (Sara Khan's old, unused Send As on Arjun's mailbox is flagged) and **Audit trail** (every step above, exportable to CSV).
+7. As Meera, open **Templates & Designer → Modern brand** and drag a **Button** block onto the canvas; the preview and compliance score update as you go. Try **AI Studio** with "modern two-column for Sales with photo and a Book a demo button".
+8. As Sara, write to an outside address in **Try it**: the Sales webinar banner and the confidentiality disclaimer appear. Copy the signature, change the phone number, and paste it into **Signature integrity** (or the public verify page) with the code: SignGuard reports the changed line.
+9. Open **Automation**, **Department assignments**, **Integrations** (run a simulated Google Workspace deployment) and **Analytics**.
+10. As Meera, open **Mailbox permissions** (Sara Khan's old, unused Send As on Arjun's mailbox is flagged) and **Audit trail** (every step above, exportable to CSV).
 
 ## Use it in Outlook (Microsoft 365 test tenant)
 
@@ -81,6 +106,23 @@ While `AUTH_MODE=dev`, the add-in identifies you by your mailbox address. That i
    ```
 3. Delete `backend/signguard.db`, start the backend, and use **People → Sync directory now**.
 
+### Connect Google Workspace
+
+1. In Google Cloud, create a service account, enable the **Gmail API** and **Admin SDK API**, and download a JSON key.
+2. In the Google Admin console, **Security → Access and data control → API controls → Domain-wide delegation**, add the service account's client ID with these scopes:
+   `https://www.googleapis.com/auth/gmail.settings.basic,https://www.googleapis.com/auth/admin.directory.user.readonly`
+3. Set before starting the backend:
+   ```powershell
+   $env:GOOGLE_SERVICE_ACCOUNT_FILE = "C:\secrets\signguard-sa.json"
+   $env:GOOGLE_ADMIN_EMAIL = "admin@yourdomain.com"
+   $env:DIRECTORY_SOURCE = "google"   # optional: use Google as the employee directory
+   ```
+4. **Integrations → Deploy signatures → Google Workspace**. Keep the key file out of the repository.
+
+### AI signature creation with Claude (optional)
+
+Set `ANTHROPIC_API_KEY` (and optionally `AI_MODEL`, default `claude-sonnet-5-5`). Without a key, AI Studio uses the built-in rules engine.
+
 ### Real mailbox permissions
 
 Run `workers/export-mailbox-permissions.ps1` (needs the `ExchangeOnlineManagement` PowerShell module and an Exchange admin), then **Mailbox permissions → Import from Exchange** with the JSON file. Approved delegations and removals are applied with `workers/apply-delegation.ps1`.
@@ -90,5 +132,7 @@ Run `workers/export-mailbox-permissions.ps1` (needs the `ExchangeOnlineManagemen
 - Entra ID sign-in in the admin app and add-in (`AUTH_MODE=entra` is implemented in the backend; the front ends still send the dev header).
 - Running the Exchange scripts automatically from a worker; today approvals are recorded and the scripts are run by hand.
 - Last-used dates from the mailbox audit log, and grant dates (the export can't read them).
-- Multiple companies in one deployment, drag-and-drop designer, campaigns, Google Workspace.
+- Multiple companies in one deployment.
+- Image uploads for logos and banners (use https URLs from your CDN or website for now).
+- Analytics counts emails composed with the add-in or compose page; Gmail signatures pushed by deployment aren't counted per email.
 - Testing on classic Outlook for Windows, Mac and mobile. Outlook for iOS and Android don't run the send-time event, so `sent_at` stays empty there (codes still verify).

@@ -133,3 +133,176 @@ class AuditEvent(Base):
     target_id: Mapped[str] = mapped_column(String(100), default="")
     details: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+# ---------------------------------------------------------------------------
+# Signature platform tables (brand, designer, campaigns, disclaimers, integrity,
+# analytics, deployments). All new tables, so existing databases upgrade by
+# create_all() on startup with no column changes.
+# ---------------------------------------------------------------------------
+
+
+class BrandKit(Base):
+    """One row (id=1): the company's brand rules used by the designer and compliance checks."""
+
+    __tablename__ = "brand_kit"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_name: Mapped[str] = mapped_column(String(200), default="")
+    primary_color: Mapped[str] = mapped_column(String(9), default="#2878d0")
+    secondary_color: Mapped[str] = mapped_column(String(9), default="#11263f")
+    accent_color: Mapped[str] = mapped_column(String(9), default="#16865b")
+    # Extra approved colours, comma-separated hex values.
+    palette: Mapped[str] = mapped_column(String(500), default="")
+    font_family: Mapped[str] = mapped_column(String(200), default="Arial, Helvetica, sans-serif")
+    logo_url: Mapped[str] = mapped_column(String(500), default="")
+    logo_width: Mapped[int] = mapped_column(Integer, default=120)
+    website: Mapped[str] = mapped_column(String(300), default="")
+    address: Mapped[str] = mapped_column(String(300), default="")
+    linkedin_url: Mapped[str] = mapped_column(String(300), default="")
+    twitter_url: Mapped[str] = mapped_column(String(300), default="")
+    facebook_url: Mapped[str] = mapped_column(String(300), default="")
+    instagram_url: Mapped[str] = mapped_column(String(300), default="")
+    youtube_url: Mapped[str] = mapped_column(String(300), default="")
+    max_width: Mapped[int] = mapped_column(Integer, default=600)
+    require_logo: Mapped[bool] = mapped_column(Boolean, default=False)
+    # When on, a template version below min_compliance_score can't be submitted.
+    enforce_compliance: Mapped[bool] = mapped_column(Boolean, default=False)
+    min_compliance_score: Mapped[int] = mapped_column(Integer, default=70)
+    updated_by: Mapped[str] = mapped_column(String(320), default="seed")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class TemplateDesign(Base):
+    """Designer blocks (JSON) behind a template version, so it can be re-opened in the designer."""
+
+    __tablename__ = "template_designs"
+    version_id: Mapped[int] = mapped_column(ForeignKey("template_versions.id"), primary_key=True)
+    design_json: Mapped[str] = mapped_column(Text)
+
+
+class TemplateSeal(Base):
+    """HMAC over an approved version's HTML, written at approval. A mismatch means tampering."""
+
+    __tablename__ = "template_seals"
+    version_id: Mapped[int] = mapped_column(ForeignKey("template_versions.id"), primary_key=True)
+    html_sha256: Mapped[str] = mapped_column(String(64))
+    seal: Mapped[str] = mapped_column(String(64))
+    sealed_by: Mapped[str] = mapped_column(String(320))
+    sealed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Campaign(Base):
+    """Marketing banner shown under signatures that match its audience and dates."""
+
+    __tablename__ = "campaigns"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    headline: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(String(400), default="")
+    cta_text: Mapped[str] = mapped_column(String(60), default="Learn more")
+    link_url: Mapped[str] = mapped_column(String(500), default="")
+    # Optional image banner; when empty a text banner (works everywhere, no image blocking) is used.
+    image_url: Mapped[str] = mapped_column(String(500), default="")
+    alt_text: Mapped[str] = mapped_column(String(200), default="")
+    background: Mapped[str] = mapped_column(String(9), default="#11263f")
+    text_color: Mapped[str] = mapped_column(String(9), default="#ffffff")
+    departments: Mapped[str] = mapped_column(String(1000), default="")
+    # internal | external | any
+    recipient_type: Mapped[str] = mapped_column(String(10), default="external")
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime)
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    impressions: Mapped[int] = mapped_column(Integer, default=0)
+    clicks: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[str] = mapped_column(String(320), default="seed")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Disclaimer(Base):
+    """Legal text added under signatures that match. Every matching disclaimer is added, by priority."""
+
+    __tablename__ = "disclaimers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    departments: Mapped[str] = mapped_column(String(1000), default="")
+    recipient_type: Mapped[str] = mapped_column(String(10), default="external")
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(String(320), default="seed")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class SignatureSeal(Base):
+    """What an email's signature said when SignGuard issued it, keyed by its verification code."""
+
+    __tablename__ = "signature_seals"
+    code: Mapped[str] = mapped_column(String(20), primary_key=True)
+    version_id: Mapped[int | None] = mapped_column(Integer)
+    sender_email: Mapped[str] = mapped_column(String(320))
+    # Visible text, normalised (lower case, single spaces), one line per row of the signature.
+    text: Mapped[str] = mapped_column(Text)
+    text_sha256: Mapped[str] = mapped_column(String(64))
+    seal: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class SignatureEvent(Base):
+    """One signature served to a real email (add-in or compose page). Used for analytics."""
+
+    __tablename__ = "signature_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    employee_email: Mapped[str] = mapped_column(String(320), index=True)
+    department: Mapped[str] = mapped_column(String(200), default="")
+    template_name: Mapped[str] = mapped_column(String(200), default="")
+    policy_name: Mapped[str] = mapped_column(String(200), default="")
+    recipient_type: Mapped[str] = mapped_column(String(10), default="")
+    message_type: Mapped[str] = mapped_column(String(10), default="")
+    campaign_id: Mapped[int | None] = mapped_column(Integer)
+    disclaimers: Mapped[int] = mapped_column(Integer, default=0)
+    on_behalf: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Deployment(Base):
+    __tablename__ = "deployments"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # google_workspace | microsoft_365
+    target: Mapped[str] = mapped_column(String(30))
+    # all | department | people
+    scope: Mapped[str] = mapped_column(String(20), default="all")
+    scope_value: Mapped[str] = mapped_column(String(2000), default="")
+    # live (calls the provider) | simulated (provider not configured: renders only)
+    mode: Mapped[str] = mapped_column(String(12), default="simulated")
+    # queued | running | completed | partial | failed
+    status: Mapped[str] = mapped_column(String(12), default="queued")
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    succeeded: Mapped[int] = mapped_column(Integer, default=0)
+    failed: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_by: Mapped[str] = mapped_column(String(320))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class DeploymentItem(Base):
+    __tablename__ = "deployment_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    deployment_id: Mapped[int] = mapped_column(ForeignKey("deployments.id"), index=True)
+    employee_email: Mapped[str] = mapped_column(String(320))
+    # ok | failed | skipped
+    status: Mapped[str] = mapped_column(String(10))
+    message: Mapped[str] = mapped_column(String(1000), default="")
+    template_name: Mapped[str] = mapped_column(String(200), default="")
+    html: Mapped[str] = mapped_column(Text, default="")
+
+
+class Setting(Base):
+    """Small key/value store for automation switches (no secrets: those stay in environment variables)."""
+
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+    updated_by: Mapped[str] = mapped_column(String(320), default="system")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -15,7 +15,27 @@ FIELDS = (
     "name", "job_title", "department", "phone", "mobile", "email", "company",
     "photo_url", "on_behalf_of", "on_behalf_title", "on_behalf_email",
     "verification_code", "verify_url",
+    # Brand kit fields (same for everyone, set in Brand kit)
+    "logo_url", "website", "address", "brand_color", "linkedin_url", "twitter_url",
+    "facebook_url", "instagram_url", "youtube_url", "website_label",
 )
+
+BANNER_MARK = "<!--sg:banner-->"
+DISCLAIMER_MARK = "<!--sg:disclaimer-->"
+
+
+def place_extras(rendered: str, banner_html: str = "", disclaimer_html: str = "") -> str:
+    """Put the campaign banner and disclaimers where the template has markers, else at the end.
+
+    banner_html and disclaimer_html are built by SignGuard from escaped values, never from user HTML.
+    """
+    out = rendered
+    for mark, extra in ((BANNER_MARK, banner_html), (DISCLAIMER_MARK, disclaimer_html)):
+        if mark in out:
+            out = out.replace(mark, extra, 1).replace(mark, "")
+        elif extra:
+            out = f"{out}\n{extra}"
+    return out
 
 
 def render(template_html: str, values: dict[str, str]) -> str:

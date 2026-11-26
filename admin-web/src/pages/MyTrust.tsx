@@ -21,7 +21,7 @@ export default function MyTrust() {
           {data.who_can_send_as_me.length === 0 ? (
             <div className="empty">Nobody else has access to your mailbox.</div>
           ) : (
-            <table>
+            <div className="card flush table-wrap"><table>
               <thead><tr><th>Person</th><th>Access</th><th>Granted</th><th>Last used</th><th>Status</th></tr></thead>
               <tbody>
                 {data.who_can_send_as_me.map((p) => (
@@ -34,7 +34,7 @@ export default function MyTrust() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
           <p className="sub">Don't recognise someone? Tell your IT team. To give someone time-limited access, use <Link to="/delegations">Delegations</Link>.</p>
 
@@ -42,7 +42,7 @@ export default function MyTrust() {
           {data.delegations.length === 0 ? (
             <div className="empty">No delegations.</div>
           ) : (
-            <table>
+            <div className="card flush table-wrap"><table>
               <thead><tr><th>Who sends</th><th>For whom</th><th>Until</th><th>Status</th></tr></thead>
               <tbody>
                 {data.delegations.map((d) => (
@@ -54,7 +54,7 @@ export default function MyTrust() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
 
           <h2 className="section">My signatures</h2>

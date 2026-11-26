@@ -29,6 +29,8 @@ class SignatureResponse(BaseModel):
     verification_code: str | None
     on_behalf_of: str | None
     warnings: list[str]
+    campaign: str | None = None
+    disclaimers: list[str] = []
 
 
 @router.post("/signature", response_model=SignatureResponse)

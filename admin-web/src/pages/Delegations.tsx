@@ -76,7 +76,7 @@ export default function Delegations({ me }: { me: Employee }) {
         <label>Ends (max 90 days)<input type="datetime-local" value={form.ends_at} onChange={(e) => setForm({ ...form, ends_at: e.target.value })} /></label>
         <div className="row span"><button onClick={request} disabled={!form.owner_email || form.reason.trim().length < 3}>Send request</button></div>
       </div>
-      <table>
+      <div className="card flush table-wrap"><table>
         <thead><tr><th>Who sends</th><th>For whom</th><th>Reason</th><th>When</th><th>Status</th><th>Exchange</th><th /></tr></thead>
         <tbody>
           {list.data?.length === 0 && <tr><td colSpan={7} className="empty">No delegations yet.</td></tr>}
@@ -102,7 +102,7 @@ export default function Delegations({ me }: { me: Employee }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </Page>
   );
 }

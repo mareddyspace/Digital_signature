@@ -4,17 +4,18 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import audit, verification
+from . import audit, extras, integrity, verification
 from .config import settings
 from .models import (
     Delegation,
     Employee,
+    SignatureEvent,
     SignaturePolicy,
     Template,
     TemplateVersion,
     utcnow,
 )
-from .rendering import render
+from .rendering import place_extras, render
 
 
 @dataclass
@@ -28,6 +29,9 @@ class SignatureResult:
     on_behalf_of: str | None = None
     delegation_id: int | None = None
     warnings: list[str] = field(default_factory=list)
+    campaign: str | None = None
+    disclaimers: list[str] = field(default_factory=list)
+    template_version_id: int | None = None
 
 
 def domain(email: str) -> str:
@@ -59,8 +63,11 @@ def active_delegation(db: Session, delegate: str, owner: str) -> Delegation | No
 
 
 def match_policy(
-    db: Session, department: str, rtype: str, message_type: str
+    db: Session, department: str, rtype: str, message_type: str,
+    tampered: list[str] | None = None,
 ) -> tuple[SignaturePolicy, TemplateVersion] | None:
+    """First enabled policy that matches. Live versions whose integrity seal is broken are skipped
+    (their names are appended to `tampered`) so an altered template never reaches anyone's email."""
     policies = db.scalars(
         select(SignaturePolicy)
         .where(SignaturePolicy.enabled)
@@ -78,6 +85,10 @@ def match_policy(
         if template and template.live_version_id:
             version = db.get(TemplateVersion, template.live_version_id)
             if version:
+                if integrity.version_intact(db, version) is False:
+                    if tampered is not None:
+                        tampered.append(template.name)
+                    continue
                 return p, version
     return None
 
@@ -90,8 +101,15 @@ def build(
     from_email: str | None = None,
     previous_code: str | None = None,
     dry_run: bool = False,
+    static: bool = False,
 ) -> SignatureResult:
-    """dry_run=True (policy tester, previews) never issues codes or writes audit events."""
+    """dry_run=True (policy tester, previews) never issues codes or writes audit events.
+
+    static=True renders a signature to store in a mail system (Gmail, Outlook on the web) where
+    there is no per-email code; it implies dry_run.
+    """
+    if static:
+        dry_run = True
     message_type = "reply" if message_type in ("reply", "forward") else "new"
     rtype = recipient_type(recipients)
     warnings: list[str] = []
@@ -124,8 +142,15 @@ def build(
 
     # Policies follow the department of the person the email is sent for.
     department = (owner or sender).department if delegation else sender.department
-    matched = match_policy(db, department, rtype, message_type)
+    tampered: list[str] = []
+    matched = match_policy(db, department, rtype, message_type, tampered)
+    for name in tampered:
+        warnings.append(f"Template \"{name}\" failed its integrity check and was not used.")
+        if not dry_run:
+            audit.record(db, "system", "integrity.template_tampered", "template", name, sender=sender.email)
     if matched is None:
+        if tampered and not dry_run:
+            db.commit()
         return SignatureResult(
             html="", template_name=None, policy_name=None, recipient_type=rtype,
             reason="No signature policy matches this email", warnings=warnings,
@@ -141,18 +166,22 @@ def build(
             owner.email if delegation and owner else None, previous_code,
         )
 
+    brand = extras.get_brand(db)
     values = {
+        **extras.brand_values(brand),
         "name": sender.name,
         "job_title": sender.job_title,
         "department": sender.department,
         "phone": sender.phone,
         "mobile": sender.mobile,
         "email": sender.email,
-        "company": settings.company_name,
         "photo_url": sender.photo_url,
         "verify_url": settings.verify_url.split("://", 1)[-1],
-        "verification_code": code_row.code if code_row else ("SG-XXXX-XXXX" if dry_run and rtype == "external" else ""),
+        "verification_code": code_row.code if code_row else (
+            "SG-XXXX-XXXX" if dry_run and not static and rtype == "external" else ""),
     }
+    if not brand.company_name:
+        values["company"] = settings.company_name
     if delegation and owner:
         values.update(
             on_behalf_of=owner.name,
@@ -161,10 +190,35 @@ def build(
         )
 
     reason_bits.insert(0, f"policy \"{policy.name}\" ({rtype}, {message_type}, {department or 'no department'})")
+
+    width = min(brand.max_width or 600, 600) - 40
+    campaign = extras.pick_campaign(db, department, rtype)
+    disclaimers = extras.pick_disclaimers(db, department, rtype)
+    html_out = place_extras(
+        render(version.html, values),
+        extras.campaign_html(campaign, width) if campaign else "",
+        extras.disclaimer_html(disclaimers, width),
+    )
+    if campaign:
+        reason_bits.append(f"banner \"{campaign.name}\"")
+    if disclaimers:
+        reason_bits.append(f"{len(disclaimers)} disclaimer(s)")
+
     if not dry_run:
+        if code_row:
+            integrity.seal_signature(db, code_row.code, version.id, sender.email, html_out)
+        if campaign:
+            campaign.impressions += 1
+        db.add(SignatureEvent(
+            employee_email=sender.email, department=department or "",
+            template_name=template.name if template else "", policy_name=policy.name,
+            recipient_type=rtype, message_type=message_type,
+            campaign_id=campaign.id if campaign else None, disclaimers=len(disclaimers),
+            on_behalf=bool(delegation),
+        ))
         db.commit()
     return SignatureResult(
-        html=render(version.html, values),
+        html=html_out,
         template_name=template.name if template else None,
         policy_name=policy.name,
         recipient_type=rtype,
@@ -173,4 +227,7 @@ def build(
         on_behalf_of=owner.name if delegation and owner else None,
         delegation_id=delegation.id if delegation else None,
         warnings=warnings,
+        campaign=campaign.name if campaign else None,
+        disclaimers=[d.name for d in disclaimers],
+        template_version_id=version.id,
     )

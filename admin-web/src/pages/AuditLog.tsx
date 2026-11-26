@@ -34,7 +34,7 @@ export default function AuditLog() {
           <button key={value} className={`chip ${action === value ? "selected" : ""}`} onClick={() => setAction(value)}>{label}</button>
         ))}
       </div>
-      <table>
+      <div className="card flush table-wrap"><table>
         <thead><tr><th>When</th><th>Who</th><th>Action</th><th>On</th><th>Details</th></tr></thead>
         <tbody>
           {list.data?.map((a) => (
@@ -51,7 +51,7 @@ export default function AuditLog() {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </Page>
   );
 }

@@ -5,26 +5,29 @@ import json
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .. import audit, directory, signature, trust
+from .. import audit, automation, compliance, deployments, designer, directory, extras, integrity, signature, trust
 from ..auth import ADMIN, ADMIN_OR_DEPT, CAN_READ_AUDIT, current_user, require_role
 from ..db import get_db
 from ..models import (
     AuditEvent,
     Delegation,
     Employee,
+    Campaign,
     MailboxPermission,
+    SignatureEvent,
     SignaturePolicy,
     Template,
+    TemplateDesign,
     TemplateVersion,
     utcnow,
 )
-from ..rendering import check_template, render
+from ..rendering import check_template, place_extras, render
 from ..config import settings
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -74,11 +77,35 @@ class TemplateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
     html: str = Field(min_length=1)
+    # Optional designer layout; when given, html must be what the designer compiled from it.
+    design: dict | None = None
 
 
 class TemplateUpdate(BaseModel):
     html: str = Field(min_length=1)
     description: str | None = None
+    design: dict | None = None
+
+
+def _save_design(db: Session, version_id: int, design: dict | None) -> None:
+    row = db.get(TemplateDesign, version_id)
+    if design is None:
+        if row is not None:
+            db.delete(row)  # hand-edited HTML: the old layout no longer matches
+        return
+    try:
+        clean = designer.normalize(design)
+    except designer.DesignError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if row is None:
+        db.add(TemplateDesign(version_id=version_id, design_json=json.dumps(clean)))
+    else:
+        row.design_json = json.dumps(clean)
+
+
+def _design(db: Session, version_id: int | None) -> dict | None:
+    row = db.get(TemplateDesign, version_id) if version_id else None
+    return json.loads(row.design_json) if row else None
 
 
 def latest_version(db: Session, template_id: int) -> TemplateVersion | None:
@@ -101,7 +128,9 @@ def template_out(db: Session, t: Template) -> dict:
             "id": latest.id, "number": latest.number, "status": latest.status,
             "html": latest.html, "created_by": latest.created_by,
             "created_at": latest.created_at,
+            "design": _design(db, latest.id),
         } if latest else None,
+        "integrity": (integrity.version_intact(db, live) if live else None),
     }
 
 
@@ -117,8 +146,11 @@ def create_template(body: TemplateIn, db: Session = Depends(get_db), user: Emplo
     t = Template(name=body.name, description=body.description, created_by=user.email)
     db.add(t)
     db.flush()
-    db.add(TemplateVersion(template_id=t.id, number=1, html=body.html, created_by=user.email))
-    audit.record(db, user.email, "template.created", "template", t.id, name=t.name)
+    v = TemplateVersion(template_id=t.id, number=1, html=body.html, created_by=user.email)
+    db.add(v)
+    db.flush()
+    _save_design(db, v.id, body.design)
+    audit.record(db, user.email, "template.created", "template", t.id, name=t.name, designer=body.design is not None)
     db.commit()
     return template_out(db, t)
 
@@ -132,11 +164,15 @@ def update_template(template_id: int, body: TemplateUpdate, db: Session = Depend
     if latest and latest.status == "draft":
         latest.html = body.html  # drafts can be edited in place
         latest.created_by = user.email
+        target = latest
     else:
-        db.add(TemplateVersion(
+        target = TemplateVersion(
             template_id=t.id, number=(latest.number + 1) if latest else 1,
             html=body.html, created_by=user.email,
-        ))
+        )
+        db.add(target)
+        db.flush()
+    _save_design(db, target.id, body.design)
     if body.description is not None:
         t.description = body.description
     audit.record(db, user.email, "template.edited", "template", t.id, name=t.name)
@@ -153,6 +189,12 @@ def submit_template(template_id: int, db: Session = Depends(get_db), user: Emplo
     problems = check_template(latest.html)
     if problems:
         raise HTTPException(422, {"problems": problems})
+    brand = extras.get_brand(db)
+    report = compliance.check(latest.html, extras.brand_dict(brand))
+    if brand.enforce_compliance and report["score"] < brand.min_compliance_score:
+        raise HTTPException(422, {"problems": [
+            f"Brand compliance score {report['score']} is below the required {brand.min_compliance_score}"
+        ] + [i["message"] for i in report["issues"] if i["severity"] in ("critical", "error")]})
     latest.status = "pending"
     audit.record(db, user.email, "template.submitted", "template", t.id, version=latest.number)
     db.commit()
@@ -165,7 +207,7 @@ class Decision(BaseModel):
 
 
 @router.post("/templates/{template_id}/decide")
-def decide_template(template_id: int, body: Decision, db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN))):
+def decide_template(template_id: int, body: Decision, background: BackgroundTasks, db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN))):
     t = db.get(Template, template_id) or _404()
     latest = latest_version(db, t.id)
     if not latest or latest.status != "pending":
@@ -180,10 +222,14 @@ def decide_template(template_id: int, body: Decision, db: Session = Depends(get_
                 old.status = "retired"
         latest.status = "live"
         t.live_version_id = latest.id
+        integrity.seal_version(db, latest, user.email)
     else:
         latest.status = "rejected"
     audit.record(db, user.email, f"template.{body.decision}d", "template", t.id, version=latest.number, note=body.note)
     db.commit()
+    if body.decision == "approve" and settings.google_configured and automation.get_switch(db, "auto_deploy_on_approval"):
+        d = deployments.create(db, "google_workspace", "all", "", "system")
+        background.add_task(deployments.run, d.id)
     return template_out(db, t)
 
 
@@ -204,21 +250,36 @@ class PreviewIn(BaseModel):
     employee_email: str
     with_code: bool = True
     on_behalf_of_email: str | None = None
+    # Add the banner and disclaimers this person would get for an external email.
+    with_extras: bool = True
 
 
 @router.post("/templates/preview")
 def preview_template(body: PreviewIn, db: Session = Depends(get_db), _: Employee = Depends(require_role(*READERS))):
     e = db.scalar(select(Employee).where(Employee.email == body.employee_email.lower())) or _404()
     owner = db.scalar(select(Employee).where(Employee.email == (body.on_behalf_of_email or "").lower())) if body.on_behalf_of_email else None
+    brand = extras.get_brand(db)
     values = {
+        **extras.brand_values(brand),
         "name": e.name, "job_title": e.job_title, "department": e.department, "phone": e.phone,
-        "mobile": e.mobile, "email": e.email, "company": settings.company_name, "photo_url": e.photo_url,
+        "mobile": e.mobile, "email": e.email, "photo_url": e.photo_url,
         "verify_url": settings.verify_url.split("://", 1)[-1],
         "verification_code": "SG-7K4P-Q2MX" if body.with_code else "",
     }
     if owner:
         values.update(on_behalf_of=owner.name, on_behalf_title=owner.job_title, on_behalf_email=owner.email)
-    return {"html": render(body.html, values), "problems": check_template(body.html)}
+    if not brand.company_name:
+        values["company"] = settings.company_name
+    rendered = render(body.html, values)
+    width = min(brand.max_width or 600, 600) - 40
+    if body.with_extras:
+        c = extras.pick_campaign(db, e.department, "external")
+        rendered = place_extras(rendered, extras.campaign_html(c, width) if c else "",
+                                extras.disclaimer_html(extras.pick_disclaimers(db, e.department, "external"), width))
+    else:
+        rendered = place_extras(rendered)
+    return {"html": rendered, "problems": check_template(body.html),
+            "compliance": compliance.check(body.html, extras.brand_dict(brand))}
 
 
 # ---------- policies ----------
@@ -279,6 +340,23 @@ def delete_policy(policy_id: int, db: Session = Depends(get_db), user: Employee 
     return {"ok": True}
 
 
+class PolicyOrder(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+@router.post("/policies/reorder")
+def reorder_policies(body: PolicyOrder, db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN))):
+    """Set processing order in one step: the first id gets priority 10, the next 20, and so on."""
+    rows = {p.id: p for p in db.scalars(select(SignaturePolicy))}
+    if set(body.ids) != set(rows) or len(body.ids) != len(rows):
+        raise HTTPException(422, "Send every policy id exactly once")
+    for n, pid in enumerate(body.ids, start=1):
+        rows[pid].priority = n * 10
+    audit.record(db, user.email, "policy.reordered", "policy", "", order=body.ids)
+    db.commit()
+    return [policy_out(db, rows[i]) for i in body.ids]
+
+
 class PolicyTest(BaseModel):
     sender_email: str
     recipients: list[str] = Field(default_factory=list)
@@ -293,7 +371,7 @@ def test_policy(body: PolicyTest, db: Session = Depends(get_db), _: Employee = D
     return {
         "html": r.html, "template_name": r.template_name, "policy_name": r.policy_name,
         "recipient_type": r.recipient_type, "reason": r.reason, "on_behalf_of": r.on_behalf_of,
-        "warnings": r.warnings,
+        "warnings": r.warnings, "campaign": r.campaign, "disclaimers": r.disclaimers,
     }
 
 
@@ -314,11 +392,17 @@ def trust_center(db: Session = Depends(get_db), _: Employee = Depends(require_ro
     def count(action: str, since=day_start) -> int:
         return db.scalar(select(func.count(AuditEvent.id)).where(AuditEvent.action == action, AuditEvent.created_at >= since)) or 0
 
-    alert_actions = ("verify.failed", "verify.wrong_recipient", "signature.unapproved_send_as")
+    alert_actions = ("verify.failed", "verify.wrong_recipient", "signature.unapproved_send_as",
+                     "integrity.template_tampered", "integrity.signature_mismatch")
     alerts = db.scalars(
         select(AuditEvent).where(AuditEvent.action.in_(alert_actions)).order_by(AuditEvent.id.desc()).limit(10)
     )
     pending_templates = db.scalar(select(func.count(TemplateVersion.id)).where(TemplateVersion.status == "pending")) or 0
+    tampered = 0
+    for t in db.scalars(select(Template).where(Template.live_version_id.is_not(None))):
+        v = db.get(TemplateVersion, t.live_version_id)
+        if v and integrity.version_intact(db, v) is False:
+            tampered += 1
     return {
         "employees": len(employees),
         "employees_with_data_issues": len(with_issues),
@@ -332,6 +416,9 @@ def trust_center(db: Session = Depends(get_db), _: Employee = Depends(require_ro
         "failed_verifications_today": count("verify.failed") + count("verify.wrong_recipient"),
         "unapproved_send_as_7d": count("signature.unapproved_send_as", now - timedelta(days=7)),
         "alerts": [audit_out(a) for a in alerts],
+        "tampered_templates": tampered,
+        "signatures_today": db.scalar(select(func.count(SignatureEvent.id)).where(SignatureEvent.created_at >= day_start)) or 0,
+        "live_campaigns": sum(1 for c in db.scalars(select(Campaign)) if extras.campaign_state(c, now) == "live"),
     }
 
 

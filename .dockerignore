@@ -1,0 +1,15 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/*.db
+**/.env
+**/dist
+admin-web/tsconfig.tsbuildinfo
+backend/static
+*.pem
+*.pfx
+*.key
+.git
+stage0-report.txt

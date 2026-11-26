@@ -10,3 +10,5 @@ dist/
 *.pem
 *.pfx
 *.key
+stage0-report.txt
+backend/static/
