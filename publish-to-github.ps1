@@ -13,6 +13,7 @@ Write-Host ("Committing as " + (git config user.name) + " <" + (git config user.
 
 Step "Backend tests"
 Push-Location backend
+& .\.venv\Scripts\python.exe -m pip install -q -r requirements-dev.txt
 & .\.venv\Scripts\python.exe -m pytest -q
 $code = $LASTEXITCODE
 Pop-Location

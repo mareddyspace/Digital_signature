@@ -48,6 +48,7 @@ To use separate terminals instead:
 cd backend
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m app.migrate
 .venv\Scripts\python -m uvicorn app.main:app --port 8000
 ```
 
@@ -62,6 +63,27 @@ npm run dev
 Open http://localhost:5173. On first start the backend creates `backend/signguard.db` with 8 sample people at contoso.com, three templates, three policies and five sample mailbox permissions. Use **Signed in as** at the bottom left to switch between people. Delete `signguard.db` to start fresh.
 
 Run the tests with `backend\.venv\Scripts\python -m pytest backend/tests`.
+
+### Database changes (migrations)
+
+Schema changes are applied by an explicit step, never by the running app. Back up `backend/signguard.db`, then:
+
+```powershell
+cd backend
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m app.migrate            # upgrade to the newest schema
+.venv\Scripts\python -m app.migrate --check    # exit code 1 if an upgrade is pending
+```
+
+At startup the backend only checks the schema and refuses to start, naming this command, if an upgrade is pending. A database created before migrations existed is recognised and marked as the baseline (`0001_baseline`) with no data changed. Use `python -m app.migrate` rather than plain `alembic upgrade head` for that first upgrade.
+
+When you change `backend/app/models.py`, add a migration and review it before committing:
+
+```powershell
+.venv\Scripts\alembic revision --autogenerate -m "describe the change"
+```
+
+`tests/test_migrations.py` fails if the models and the migrations disagree. To try an upgrade safely on a copy of a database: `python scripts/migration_dry_run.py <copy of signguard.db>`.
 
 ## Demo script (5 minutes)
 

@@ -30,6 +30,30 @@ if ($owners) {
     Log "Nothing was listening on port 8000"
 }
 
+# 1b. Install new or updated Python packages (Phase 0 adds Alembic for migrations)
+Section "Install backend packages"
+Push-Location (Join-Path $repo "backend")
+& $python -m pip install -q -r requirements-dev.txt 2>&1 | Out-File $report -Append -Encoding utf8
+Log "pip exit code: $LASTEXITCODE"
+Pop-Location
+
+# 1c. Back up the real database, then try the migration on a copy first
+Section "Database backup and migration dry run"
+$db = Join-Path $repo "backend\signguard.db"
+if (Test-Path $db) {
+    $backup = Join-Path $repo ("backend\signguard.backup-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".db")
+    Copy-Item $db $backup
+    Log "Backup: $backup"
+    $copy = Join-Path $env:TEMP "signguard-migration-test.db"
+    Copy-Item $db $copy -Force
+    Push-Location (Join-Path $repo "backend")
+    & $python scripts\migration_dry_run.py $copy 2>&1 | Out-File $report -Append -Encoding utf8
+    Log "migration dry run exit code: $LASTEXITCODE"
+    Pop-Location
+} else {
+    Log "No signguard.db yet; the backend will create a fresh one"
+}
+
 # 2. Backend tests
 Section "Backend tests (pytest)"
 Push-Location (Join-Path $repo "backend")
@@ -51,7 +75,10 @@ npm run validate 2>&1 | Out-File $report -Append -Encoding utf8
 Log "validate exit code: $LASTEXITCODE"
 Pop-Location
 
-# 5. Start the current backend in its own window
+# 5. Apply database migrations (explicit step), then start the current backend in its own window
+Push-Location (Join-Path $repo "backend")
+& $python -m app.migrate 2>&1 | Out-File $report -Append -Encoding utf8
+Pop-Location
 Section "Start backend"
 Start-Process powershell -ArgumentList @(
     "-NoExit",

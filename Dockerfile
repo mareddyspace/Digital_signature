@@ -17,4 +17,5 @@ ENV ADMIN_STATIC_DIR=/app/backend/static/admin \
     PYTHONUNBUFFERED=1
 WORKDIR /app/backend
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]
+# Migrations run once per container start, before the server; the app itself only checks the schema.
+CMD ["sh", "-c", "python -m app.migrate && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers"]

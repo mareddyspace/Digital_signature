@@ -310,7 +310,8 @@ export default function SignatureEditor({ me }: { me: Employee }) {
                 {g.items.map((i) => (
                   <button key={i.type} className="tb-item" draggable={!readOnly} disabled={readOnly}
                     onDragStart={(e) => { e.dataTransfer.setData(NEW_KEY, i.type); e.dataTransfer.effectAllowed = "copy"; }}
-                    onClick={() => addBlock(i.type)} title={`${i.hint}. Drag onto the canvas or click to add.`}>
+                    onClick={() => addBlock(i.type)} aria-label={`Add ${i.label}: ${i.hint}`}
+                    title={`${i.hint}. Drag onto the canvas or click to add.`}>
                     <span>{i.label}</span><small>{i.hint}</small>
                   </button>
                 ))}

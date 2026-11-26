@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, fmt, type Employee, type SignatureResult } from "../api";
+import { api, ApiError, fmt, type Employee, type SignatureResult } from "../api";
 import { Badge, Drawer, ErrorNote, Page, SignaturePreview, useLoad } from "../ui";
 
 const ROLE_TEXT: Record<string, string> = { admin: "Administrator", dept_admin: "Department admin", auditor: "Auditor", employee: "Employee" };
@@ -10,18 +10,25 @@ export default function People({ me }: { me: Employee }) {
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [held, setHeld] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [dept, setDept] = useState("");
   const [incomplete, setIncomplete] = useState(false);
   const [open, setOpen] = useState<Employee | null>(null);
 
-  const sync = async () => {
-    setSyncing(true); setSyncError(null); setNotice(null);
+  // A sync that would deactivate an unusually large share of people is held back by the
+  // server (409); the admin sees why and can apply it deliberately.
+  const sync = async (force = false) => {
+    setSyncing(true); setSyncError(null); setNotice(null); setHeld(null);
     try {
-      const r = await api<{ created: number; updated: number; deactivated: number }>("/directory/sync", { body: {} });
-      setNotice(`Directory synced: ${r.created} added, ${r.updated} updated, ${r.deactivated} removed.`);
+      const r = await api<{ created: number; updated: number; deactivated: number; renamed?: number }>(
+        `/directory/sync${force ? "?force=true" : ""}`, { body: {} });
+      setNotice(`Directory synced: ${r.created} added, ${r.updated} updated, ${r.renamed ?? 0} with a new email address, ${r.deactivated} removed.`);
       reload();
-    } catch (e) { setSyncError((e as Error).message); } finally { setSyncing(false); }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) setHeld(e.message);
+      else setSyncError((e as Error).message);
+    } finally { setSyncing(false); }
   };
 
   const departments = useMemo(() => [...new Set((data ?? []).map((e) => e.department).filter(Boolean))].sort(), [data]);
@@ -34,9 +41,18 @@ export default function People({ me }: { me: Employee }) {
     <Page
       title="People"
       intro="Everyone SignGuard creates signatures for, synced from your directory. Signatures use these details, so a gap here shows up in that person's email."
-      actions={me.role === "admin" && <button className="secondary" onClick={sync} disabled={syncing}>{syncing ? "Syncing…" : "Sync directory"}</button>}
+      actions={me.role === "admin" && <button className="secondary" onClick={() => sync()} disabled={syncing}>{syncing ? "Syncing…" : "Sync directory"}</button>}
     >
       <ErrorNote error={error ?? syncError} />
+      {held && (
+        <div className="note bad row between" role="alert">
+          <span>{held.replace(" To apply it anyway, use Sync directory on the People page and confirm.", "")}</span>
+          <span className="row tight">
+            <button className="secondary" onClick={() => setHeld(null)}>Cancel</button>
+            <button className="danger" onClick={() => sync(true)} disabled={syncing}>Apply anyway</button>
+          </span>
+        </div>
+      )}
       {notice && <div className="note good" role="status">{notice}</div>}
       <div className="toolbar">
         <input className="search" placeholder="Search name, email or title" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search people" />

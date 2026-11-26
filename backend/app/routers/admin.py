@@ -5,7 +5,7 @@ import json
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -67,8 +67,15 @@ def dev_users(db: Session = Depends(get_db)):
 
 
 @router.post("/directory/sync")
-def sync_directory(db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN))):
-    return directory.sync(db, actor=user.email)
+def sync_directory(force: bool = False, db: Session = Depends(get_db),
+                   user: Employee = Depends(require_role(*ADMIN))):
+    """force=true applies a sync that would deactivate an unusually large share of people."""
+    try:
+        return directory.sync(db, actor=user.email, force=force)
+    except directory.EmptyDirectory as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+    except directory.SyncHeldBack as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 # ---------- templates ----------

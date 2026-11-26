@@ -9,8 +9,8 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import trust
 from .config import settings
-from .db import Base, SessionLocal, engine
-from . import automation
+from .db import SessionLocal, engine
+from . import automation, migrate
 from .routers import addin, admin, integrations, platform, trust_routes, verify
 from .seed import seed, seed_platform
 
@@ -30,7 +30,9 @@ async def _expiry_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(engine)
+    # Migrations are a deployment step (python -m app.migrate); here we only refuse to run on an
+    # outdated schema, so no worker ever changes the database structure on its own.
+    migrate.require_current(engine)
     with SessionLocal() as db:
         seed(db)
         seed_platform(db)

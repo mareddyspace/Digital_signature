@@ -8,6 +8,14 @@ if (-not (Test-Path $backendPython)) {
     & $backendPython -m pip install -r (Join-Path $repo "backend\requirements.txt") -r (Join-Path $repo "backend\requirements-dev.txt")
 }
 
+# Database migrations are an explicit step before the backend starts.
+Push-Location (Join-Path $repo "backend")
+try {
+    & $backendPython -m app.migrate
+} finally {
+    Pop-Location
+}
+
 $adminModules = Join-Path $repo "admin-web\node_modules"
 if (-not (Test-Path $adminModules)) {
     Push-Location (Join-Path $repo "admin-web")
