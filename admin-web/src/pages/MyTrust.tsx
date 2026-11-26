@@ -13,7 +13,7 @@ interface MyTrustData {
 export default function MyTrust() {
   const { data, error } = useLoad(() => api<MyTrustData>("/me/trust"));
   return (
-    <Page title="My Trust" intro="Your signature, and everyone who can send email as you.">
+    <Page title="My signature" intro="Your signature, and everyone who can send email as you.">
       <ErrorNote error={error} />
       {data && (
         <>

@@ -62,7 +62,7 @@ export default function Disclaimers({ me }: { me: Employee }) {
           <div className="disclaimer-preview">{form.text || "Disclaimer text appears here."}</div>
         </Drawer>
       )}
-      <div className="card flush"><table>
+      <div className="card flush table-wrap"><table>
         <thead><tr><th>Disclaimer</th><th>Applies to</th><th>Priority</th><th>Status</th><th /></tr></thead>
         <tbody>
           {list.data?.map((d) => (

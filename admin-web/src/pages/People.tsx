@@ -64,7 +64,7 @@ export default function People({ me }: { me: Employee }) {
         <span className="spacer" />
         <span className="sub">{rows.length} of {data?.length ?? 0}</span>
       </div>
-      <div className="card flush">
+      <div className="card flush table-wrap">
         <table>
           <thead><tr><th>Name</th><th>Job title</th><th>Department</th><th>Phone</th><th>SignGuard role</th><th>Directory details</th></tr></thead>
           <tbody>

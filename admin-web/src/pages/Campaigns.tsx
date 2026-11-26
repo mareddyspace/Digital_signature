@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, fmt, type Campaign, type Employee } from "../api";
-import { Badge, Drawer, ErrorNote, Page, SignaturePreview, Toggle, fromLocalInput, toLocalInput, useAction, useLoad } from "../ui";
+import { Badge, Drawer, ErrorNote, FitPreview, Page, Toggle, fromLocalInput, toLocalInput, useAction, useLoad } from "../ui";
 
 type Form = Omit<Campaign, "id" | "impressions" | "clicks" | "ctr" | "state" | "preview_html"> & { id?: number };
 
@@ -84,7 +84,7 @@ export default function Campaigns({ me }: { me: Employee }) {
               <strong>{c.name}</strong>
               <Badge tone={STATE_TONE[c.state] ?? "neutral"}>{c.state}</Badge>
             </div>
-            <SignaturePreview html={c.preview_html} height={100} />
+            <FitPreview html={c.preview_html} />
             <div className="details">
               <span>{c.departments || "All departments"}</span>
               <span>{c.recipient_type === "any" ? "Everyone" : `${c.recipient_type} recipients`}</span>

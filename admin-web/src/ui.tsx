@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /** Load data from the API; reload() refetches. */
 export function useLoad<T>(load: () => Promise<T>, deps: unknown[] = []) {
@@ -170,6 +170,27 @@ export function SignatureThumb({ html, height = 132 }: { html: string; height?: 
     <div className="sig-thumb" style={{ height }}>
       {html ? <iframe sandbox="" tabIndex={-1} aria-hidden="true" title="" style={{ height: height / 0.65 }}
         srcDoc={`<!doctype html><html><body style="margin:16px;background:#fff">${html}</body></html>`} /> : <div className="sub" style={{ padding: 12 }}>No preview</div>}
+    </div>
+  );
+}
+
+/** Shows HTML designed for a fixed width (a banner) shrunk to fit its container, never cropped or scrolled. */
+export function FitPreview({ html, width = 620, height = 150 }: { html: string; width?: number; height?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.45);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => setScale(Math.min(1, el.clientWidth / width));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [width]);
+  return (
+    <div ref={ref} className="fit-preview" style={{ height: Math.round(height * scale) }}>
+      <iframe sandbox="" tabIndex={-1} aria-hidden="true" title="" scrolling="no" style={{ width, height, transform: `scale(${scale})` }}
+        srcDoc={`<!doctype html><html><body style="margin:8px;background:#fff;overflow:hidden">${html}</body></html>`} />
     </div>
   );
 }

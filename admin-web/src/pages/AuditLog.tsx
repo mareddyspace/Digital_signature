@@ -2,15 +2,22 @@ import { useState } from "react";
 import { api, download, fmt, type AuditEvent } from "../api";
 import { ErrorNote, Page, useLoad } from "../ui";
 
+// Labels match the sidebar names; values are action prefixes recorded by the backend.
 const GROUPS = [
   ["", "Everything"],
+  ["template.", "Signatures"],
+  ["policy.", "Rules"],
+  ["campaign.", "Campaigns"],
+  ["disclaimer.", "Disclaimers"],
+  ["brand.", "Brand kit"],
   ["delegation.", "Delegations"],
-  ["template.", "Templates"],
-  ["policy.", "Policies"],
-  ["permission", "Permissions"],
+  ["permission", "Mailbox access"],
   ["verify.", "Verification checks"],
+  ["integrity.", "Integrity"],
   ["signature.", "Signature warnings"],
   ["directory.", "Directory sync"],
+  ["deployment.", "Deployments"],
+  ["automation.", "Automation"],
 ];
 
 export default function AuditLog() {
@@ -20,7 +27,7 @@ export default function AuditLog() {
 
   return (
     <Page
-      title="Audit trail"
+      title="Audit log"
       intro="Every change, approval, delegation and verification check. Entries can't be edited or deleted."
       actions={
         <button className="secondary" onClick={() => download(`/audit.csv${action ? `?action=${encodeURIComponent(action)}` : ""}`, "signguard-audit.csv").catch((e) => setError(e.message))}>

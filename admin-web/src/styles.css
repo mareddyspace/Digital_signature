@@ -210,7 +210,8 @@ tr:last-child td { border-bottom: 0; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover td, tbody tr.selected td { background: #f7f9fc; }
 .card table, .card.flush table { border: 0; border-radius: 0; }
-.table-wrap, .matrix-wrap { overflow-x: auto; }
+/* .card.flush clips its corners; a wide table inside it must still scroll, not be cut off */
+.table-wrap, .matrix-wrap, .card.flush.table-wrap { overflow-x: auto; }
 td.actions { text-align: right; white-space: nowrap; }
 
 /* ---------- chips, tabs, segmented ---------- */
@@ -267,6 +268,8 @@ td.actions { text-align: right; white-space: nowrap; }
 /* ---------- signature previews ---------- */
 .sig-preview { width: 100%; border: 1px solid var(--line); border-radius: var(--r); background: #fff; display: block; margin: 8px 0; }
 .sig-thumb { position: relative; height: 132px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+.fit-preview { overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: #fff; }
+.fit-preview iframe { display: block; border: 0; transform-origin: 0 0; pointer-events: none; }
 .sig-thumb iframe { width: 154%; border: 0; transform: scale(0.65); transform-origin: 0 0; pointer-events: none; }
 
 /* ---------- compose (Outlook simulator) ---------- */

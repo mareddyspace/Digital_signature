@@ -90,7 +90,7 @@ export default function Compose({ me }: { me: Employee }) {
           </div>
           <textarea className="compose-body" defaultValue={"Hi,\n\nPlease find the invoice attached.\n\nThanks,"} rows={5} aria-label="Message" />
           {sig?.warnings.map((w) => <div key={w} className="note warn">{w}</div>)}
-          <SignaturePreview html={sig?.html ?? ""} height={200} />
+          {sig ? <SignaturePreview html={sig.html} height={200} /> : <div className="empty">{error ? "No signature" : "Loading signature…"}</div>}
           <div className="compose-foot">
             <div className="why">
               {sig && (
