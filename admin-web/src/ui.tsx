@@ -50,7 +50,8 @@ const STATE_TONES: Record<string, "good" | "warn" | "bad" | "neutral" | "info"> 
 };
 
 export function StateBadge({ state }: { state: string }) {
-  return <Badge tone={STATE_TONES[state] ?? "neutral"}>{state}</Badge>;
+  const text = (state.charAt(0).toUpperCase() + state.slice(1)).replace(/_/g, " ");
+  return <Badge tone={STATE_TONES[state] ?? "neutral"}>{text}</Badge>;
 }
 
 export const FLAG_TEXT: Record<string, string> = {
@@ -193,4 +194,57 @@ export function FitPreview({ html, width = 620, height = 150 }: { html: string; 
         srcDoc={`<!doctype html><html><body style="margin:8px;background:#fff;overflow:hidden">${html}</body></html>`} />
     </div>
   );
+}
+
+/** Grey placeholder lines shown while a section loads, so the layout doesn't jump. */
+export function Skeleton({ lines = 3, height = 14 }: { lines?: number; height?: number }) {
+  return (
+    <div className="skeleton" aria-busy="true" aria-label="Loading">
+      {Array.from({ length: lines }, (_, n) => <span key={n} style={{ height, width: `${n === lines - 1 ? 60 : 100}%` }} />)}
+    </div>
+  );
+}
+
+/** One-sentence empty state with an optional next action. */
+export function EmptyState({ title, detail, action }: { title: string; detail?: string; action?: ReactNode }) {
+  return (
+    <div className="empty-state">
+      <strong>{title}</strong>
+      {detail && <p>{detail}</p>}
+      {action && <div className="empty-action">{action}</div>}
+    </div>
+  );
+}
+
+interface ConfirmOptions { title: string; detail?: string; confirm?: string; danger?: boolean }
+
+/**
+ * In-app confirm dialog (replaces window.confirm, which looks foreign and blocks the page).
+ * const [ask, dialog] = useConfirm();  if (await ask({ title: "Delete?" })) …;  render {dialog}
+ */
+export function useConfirm(): [(o: ConfirmOptions) => Promise<boolean>, ReactNode] {
+  const [open, setOpen] = useState<(ConfirmOptions & { resolve: (v: boolean) => void }) | null>(null);
+  const ask = useCallback((o: ConfirmOptions) => new Promise<boolean>((resolve) => setOpen({ ...o, resolve })), []);
+  const close = (v: boolean) => { open?.resolve(v); setOpen(null); };
+  const okRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    okRef.current?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(false); };
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  });
+  const dialog = open && (
+    <div className="confirm-backdrop" onMouseDown={() => close(false)}>
+      <div className="confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" onMouseDown={(e) => e.stopPropagation()}>
+        <h2 id="confirm-title">{open.title}</h2>
+        {open.detail && <p>{open.detail}</p>}
+        <div className="confirm-actions">
+          <button className="secondary" onClick={() => close(false)}>Cancel</button>
+          <button ref={okRef} className={open.danger ? "danger-solid" : ""} onClick={() => close(true)}>{open.confirm ?? "Continue"}</button>
+        </div>
+      </div>
+    </div>
+  );
+  return [ask, dialog];
 }

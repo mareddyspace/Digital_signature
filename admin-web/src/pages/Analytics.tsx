@@ -102,6 +102,16 @@ function LineChart({ rows }: { rows: Data["series"] }) {
   const ticks = [0, nice / 4, nice / 2, (3 * nice) / 4, nice];
   const every = Math.max(1, Math.ceil(rows.length / 8));
   const last = rows.length - 1;
+  // End-of-line labels: keep them at least 14px apart when the two lines finish close together.
+  const endY = { external: y(rows[last]?.external ?? 0), internal: y(rows[last]?.internal ?? 0) };
+  const gap = 14 - Math.abs(endY.external - endY.internal);
+  const labelY = gap > 0
+    ? (endY.external <= endY.internal
+      ? { external: endY.external - gap / 2, internal: endY.internal + gap / 2 }
+      : { external: endY.external + gap / 2, internal: endY.internal - gap / 2 })
+    : endY;
+  const over = Math.max(labelY.external, labelY.internal) - y(0);
+  if (over > 0) { labelY.external -= over; labelY.internal -= over; }
   const short = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
   const onMove = (e: MouseEvent<SVGRectElement>) => {
@@ -123,14 +133,14 @@ function LineChart({ rows }: { rows: Data["series"] }) {
               <text x={L - 8} y={y(v) + 4} className="axis" textAnchor="end">{v}</text>
             </g>
           ))}
-          {rows.map((r, i) => (i % every === 0 || i === last) && (
+          {rows.map((r, i) => ((i % every === 0 && last - i >= Math.ceil(every / 2) + 1) || i === last) && (
             <text key={r.date} x={x(i)} y={H - 8} className="axis" textAnchor="middle">{short(r.date)}</text>
           ))}
           {SERIES.map((s) => (
             <g key={s.key}>
               <polyline fill="none" stroke={s.color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round"
                 points={rows.map((r, i) => `${x(i)},${y(r[s.key])}`).join(" ")} />
-              <text x={x(last) + 8} y={y(rows[last]?.[s.key] ?? 0) + 4} className="direct-label">{s.label}</text>
+              <text x={x(last) + 8} y={labelY[s.key] + 4} className="direct-label">{s.label}</text>
             </g>
           ))}
           {hover !== null && (

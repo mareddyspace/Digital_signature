@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, fmt, type Campaign, type Employee } from "../api";
-import { Badge, Drawer, ErrorNote, FitPreview, Page, Toggle, fromLocalInput, toLocalInput, useAction, useLoad } from "../ui";
+import { Badge, Drawer, ErrorNote, FitPreview, Page, Toggle, fromLocalInput, toLocalInput, useAction, useConfirm, useLoad } from "../ui";
 
 type Form = Omit<Campaign, "id" | "impressions" | "clicks" | "ctr" | "state" | "preview_html"> & { id?: number };
 
@@ -13,6 +13,7 @@ const EMPTY: Form = {
 const STATE_TONE: Record<string, "good" | "info" | "neutral" | "warn"> = { live: "good", scheduled: "info", ended: "neutral", disabled: "neutral" };
 
 export default function Campaigns({ me }: { me: Employee }) {
+  const [ask, confirmDialog] = useConfirm();
   const list = useLoad(() => api<Campaign[]>("/campaigns"));
   const [form, setForm] = useState<Form | null>(null);
   const { run, busy, Notes } = useAction(() => list.reload());
@@ -82,12 +83,12 @@ export default function Campaigns({ me }: { me: Employee }) {
           <article key={c.id} className="card campaign-card">
             <div className="row between">
               <strong>{c.name}</strong>
-              <Badge tone={STATE_TONE[c.state] ?? "neutral"}>{c.state}</Badge>
+              <Badge tone={STATE_TONE[c.state] ?? "neutral"}>{c.state.charAt(0).toUpperCase() + c.state.slice(1)}</Badge>
             </div>
             <FitPreview html={c.preview_html} />
             <div className="details">
               <span>{c.departments || "All departments"}</span>
-              <span>{c.recipient_type === "any" ? "Everyone" : `${c.recipient_type} recipients`}</span>
+              <span>{c.recipient_type === "any" ? "Everyone" : `${c.recipient_type === "external" ? "External" : "Internal"} recipients`}</span>
               <span>{c.starts_at ? fmt(c.starts_at) : "Now"} → {c.ends_at ? fmt(c.ends_at) : "no end"}</span>
             </div>
             <div className="metrics">
@@ -97,8 +98,8 @@ export default function Campaigns({ me }: { me: Employee }) {
               <div className="row">
                 <button className="secondary" onClick={() => setForm({ ...c })}>Edit</button>
                 {me.role === "admin" && (
-                  <button className="link-button danger" onClick={() => window.confirm(`Delete "${c.name}"? Its view and click counts are kept in the audit trail.`) &&
-                    run(() => api(`/campaigns/${c.id}`, { method: "DELETE" }), "Banner deleted.")}>Delete</button>
+                  <button className="link-button danger" onClick={async () => (await ask({ title: `Delete "${c.name}"?`, detail: "The banner stops appearing in signatures. Its view and click counts are kept in the audit trail.", confirm: "Delete banner", danger: true }))
+                    && run(() => api(`/campaigns/${c.id}`, { method: "DELETE" }), "Banner deleted.")}>Delete</button>
                 )}
               </div>
             )}
@@ -106,6 +107,7 @@ export default function Campaigns({ me }: { me: Employee }) {
         ))}
         {list.data?.length === 0 && <div className="empty">No banners yet.</div>}
       </div>
+      {confirmDialog}
     </Page>
   );
 }

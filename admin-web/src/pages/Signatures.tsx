@@ -63,9 +63,8 @@ export default function Signatures({ me }: { me: Employee }) {
   const duplicate = async (t: TemplateRow) => {
     setError(null);
     try {
-      const copy = await api<TemplateRow>("/templates", {
-        body: { name: `${t.name} (copy)`, description: t.description, html: t.latest?.html ?? t.live_html, design: t.latest?.design ?? undefined },
-      });
+      // The server picks a free name ("… (copy 2)") and copies the live version, or the draft if it was never live.
+      const copy = await api<TemplateRow>(`/templates/${t.id}/duplicate`, { body: {} });
       navigate(`/signatures/${copy.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -75,7 +74,7 @@ export default function Signatures({ me }: { me: Employee }) {
   return (
     <Page
       title="Signatures"
-      intro="Every signature design in your organisation. Rules decide who gets which one; each change is approved by a second admin before it reaches email."
+      intro="Every signature design in your organisation. Rules decide who gets which one; each change is approved before it reaches email."
       actions={canEdit && <button onClick={() => setParams({ new: "layout" })}>New signature</button>}
     >
       <ErrorNote error={templates.error ?? error} />
@@ -133,8 +132,8 @@ export default function Signatures({ me }: { me: Employee }) {
                 </div>
                 <div className="sig-row-actions">
                   <Link to={`/signatures/${t.id}`} className="btn secondary small">{canEdit ? "Edit" : "View"}</Link>
-                  {canEdit && <button className="ghost small" onClick={() => duplicate(t)}>Duplicate</button>}
-                  <Link to={`/rules?template=${t.id}`} className="btn ghost small">Rules</Link>
+                  {canEdit && <button className="ghost small" aria-label={`Duplicate ${t.name}`} onClick={() => duplicate(t)}>Duplicate</button>}
+                  <Link to={`/rules?template=${t.id}`} className="btn ghost small" aria-label={`Rules using ${t.name}`}>Rules</Link>
                 </div>
               </article>
             );
@@ -154,7 +153,7 @@ export default function Signatures({ me }: { me: Employee }) {
                   <td>{(usedBy[t.id] ?? []).length || <span className="sub">None</span>}</td>
                   <td>{sc ? <ScoreBadge score={sc.score} grade={sc.grade} /> : "–"}</td>
                   <td className="sub">{t.latest ? fmt(t.latest.created_at) : "–"}</td>
-                  <td className="actions">{canEdit && <button className="ghost small" onClick={(e) => { e.stopPropagation(); duplicate(t); }}>Duplicate</button>}</td>
+                  <td className="actions">{canEdit && <button className="ghost small" aria-label={`Duplicate ${t.name}`} onClick={(e) => { e.stopPropagation(); duplicate(t); }}>Duplicate</button>}</td>
                 </tr>
               );
             })}

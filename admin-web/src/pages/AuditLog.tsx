@@ -18,6 +18,7 @@ const GROUPS = [
   ["directory.", "Directory sync"],
   ["deployment.", "Deployments"],
   ["automation.", "Automation"],
+  ["approval.", "Approval setting"],
 ];
 
 export default function AuditLog() {

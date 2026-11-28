@@ -2,7 +2,7 @@ import "./SignatureEditor.css";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, fmt, type Brand, type ComplianceReport, type Design, type DesignBlock, type BlockType, type Employee } from "../api";
-import { Badge, ScoreBadge, SeverityBadge, StateBadge, useLoad } from "../ui";
+import { Badge, ScoreBadge, SeverityBadge, StateBadge, useConfirm, useLoad } from "../ui";
 import type { TemplateRow } from "./Signatures";
 
 // ---------------------------------------------------------------- metadata
@@ -32,6 +32,7 @@ const TOOLBOX: { group: string; items: { type: BlockType; label: string; hint: s
     { type: "button", label: "Button", hint: "Call to action" },
     { type: "divider", label: "Divider", hint: "Horizontal line" },
     { type: "spacer", label: "Spacer", hint: "Vertical space" },
+    { type: "emoji", label: "Emoji", hint: "Sun, night or cloud" },
   ] },
   { group: "Placed by rules", items: [
     { type: "verification", label: "Verification code", hint: "External email only" },
@@ -45,6 +46,8 @@ const NETWORKS: [string, string, keyof Brand][] = [
   ["instagram", "Instagram", "instagram_url"], ["youtube", "YouTube", "youtube_url"],
 ];
 const CONTACT = ["phone", "mobile", "email", "website"];
+/** The emoji element's only choices: value, name, character. Matches EMOJIS in backend/app/designer.py. */
+const EMOJIS: [string, string, string][] = [["sun", "Sun", "\u2600\uFE0F"], ["night", "Night", "\uD83C\uDF19"], ["cloud", "Cloud", "\u2601\uFE0F"]];
 const NEW_KEY = "application/x-signguard-new";
 const MOVE_KEY = "application/x-signguard-move";
 const PLACEHOLDERS = ["name", "job_title", "department", "phone", "mobile", "email", "company", "logo_url", "website",
@@ -80,6 +83,7 @@ type Mode = "design" | "html" | "history";
 interface Version { id: number; number: number; status: string; created_by: string; created_at: string; decided_by: string | null; decided_at: string | null }
 
 export default function SignatureEditor({ me }: { me: Employee }) {
+  const [ask, confirmDialog] = useConfirm();
   const { id } = useParams();
   const tid = Number(id);
   const navigate = useNavigate();
@@ -87,6 +91,8 @@ export default function SignatureEditor({ me }: { me: Employee }) {
   const [tpl, setTpl] = useState<TemplateRow | null>(null);
   const people = useLoad(() => api<Employee[]>("/employees"));
   const brand = useLoad(() => api<Brand>("/brand"));
+  const approval = useLoad(() => api<{ mode: string }>("/settings/approval").catch(() => ({ mode: "two_admins" })));
+  const approvalMode = approval.data?.mode ?? "two_admins";
   const hist = useHistory(null);
   const design = hist.design;
   const [html, setHtml] = useState("");
@@ -163,7 +169,9 @@ export default function SignatureEditor({ me }: { me: Employee }) {
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
   }, [dirty]);
-  const leave = () => { if (!dirty || window.confirm("Leave without saving your changes?")) navigate("/signatures"); };
+  const leave = async () => {
+    if (!dirty || await ask({ title: "Leave without saving?", detail: "Your unsaved changes to this signature will be lost.", confirm: "Leave", danger: true })) navigate("/signatures");
+  };
 
   const run = async (fn: () => Promise<unknown>, message: string) => {
     setBusy(true); setError(null); setNotice(null);
@@ -175,7 +183,8 @@ export default function SignatureEditor({ me }: { me: Employee }) {
     if (design) source = (await api<{ html: string }>("/designer/compile", { body: { design } })).html;
     await api(`/templates/${tid}`, { method: "PUT", body: { html: source, design } });
   }, "Draft saved.");
-  const submit = () => run(() => api(`/templates/${tid}/submit`, { body: {} }), "Submitted. Another admin must approve it before it goes live.");
+  const submit = () => run(() => api(`/templates/${tid}/submit`, { body: {} }),
+    approvalMode === "off" ? "Published: this version is now live." : approvalMode === "one_admin" ? "Submitted. An admin can now approve it." : "Submitted. Another admin must approve it before it goes live.");
   const decide = (decision: "approve" | "reject") => run(() => api(`/templates/${tid}/decide`, { body: { decision } }), decision === "approve" ? "Approved: this version is now live." : "Rejected.");
 
   // ---- design mutations
@@ -235,15 +244,15 @@ export default function SignatureEditor({ me }: { me: Employee }) {
     return () => window.removeEventListener("keydown", h);
   });
 
-  const toHtml = () => {
-    if (design && !window.confirm("Edit the HTML by hand? This version will no longer open in the designer.")) return;
+  const toHtml = async () => {
+    if (design && !await ask({ title: "Edit the HTML by hand?", detail: "This version will no longer open in the designer.", confirm: "Edit HTML" })) return;
     if (design) hist.reset(null);
     setMode("html");
   };
   const toDesigner = async () => {
     if (design) { setMode("design"); return; }
     if (readOnly) return;
-    if (!window.confirm("Rebuild this signature in the designer? The current HTML is replaced by a starter layout in your brand colours.")) return;
+    if (!await ask({ title: "Rebuild in the designer?", detail: "The current HTML is replaced by a starter layout in your brand colours.", confirm: "Rebuild" })) return;
     const starters = await api<{ id: string; design: Design }[]>("/designer/starters");
     hist.commit(starters[0].design);
     setMode("design");
@@ -281,10 +290,10 @@ export default function SignatureEditor({ me }: { me: Employee }) {
         {canEdit && !pending && (
           <>
             <button className="secondary" disabled={!dirty || busy} onClick={save}>Save draft</button>
-            <button disabled={dirty || busy || latest?.status !== "draft"} onClick={submit} title={latest?.status !== "draft" ? "Save a draft first" : ""}>Submit for approval</button>
+            <button disabled={dirty || busy || latest?.status !== "draft"} onClick={submit} title={latest?.status !== "draft" ? "Save a draft first" : ""}>{approvalMode === "off" ? "Publish" : "Submit for approval"}</button>
           </>
         )}
-        {pending && me.role === "admin" && latest?.created_by !== me.email && (
+        {pending && me.role === "admin" && (latest?.created_by !== me.email || approvalMode !== "two_admins") && (
           <>
             <button className="danger" disabled={busy} onClick={() => decide("reject")}>Reject</button>
             <button disabled={busy} onClick={() => decide("approve")}>Approve and publish</button>
@@ -296,7 +305,7 @@ export default function SignatureEditor({ me }: { me: Employee }) {
         <div className="se-notes">
           {error && <div className="note bad">{error}</div>}
           {notice && <div className="note good">{notice}</div>}
-          {pending && <div className="note warn">Version {latest!.number} by {latest!.created_by} is waiting for approval{latest!.created_by === me.email ? "; another admin must approve it." : "."} It can't be edited until it's approved or rejected.</div>}
+          {pending && <div className="note warn">Version {latest!.number} by {latest!.created_by} is waiting for approval{latest!.created_by === me.email && approvalMode === "two_admins" ? "; another admin must approve it." : "."} It can't be edited until it's approved or rejected.</div>}
           {tpl.integrity === false && <div className="note bad">The live version doesn't match what was approved, so SignGuard is not using it. Save and submit a new version.</div>}
         </div>
       )}
@@ -365,9 +374,10 @@ export default function SignatureEditor({ me }: { me: Employee }) {
               ))}
             </tbody>
           </table>
-          <p className="sub">Every approved version is kept and sealed. A new version replaces the live one only after a second admin approves it.</p>
+          <p className="sub">Every approved version is kept and sealed. A new version replaces the live one only once it's approved (see Automation & approvals).</p>
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }
@@ -532,6 +542,10 @@ function BlockView({ block, s, brand, person }: { block: DesignBlock; s: Design[
       return <div style={{ padding: "8px 0" }}><div style={{ borderTop: `${num(p.thickness, 1)}px solid ${hex(p.color, "#e1e6ec")}` }} /></div>;
     case "spacer":
       return <div style={{ height: num(p.height, 8) }} className="cv-spacer" />;
+    case "emoji": {
+      const e = EMOJIS.find((x) => x[0] === p.emoji) ?? EMOJIS[0];
+      return <span role="img" aria-label={e[1]} style={{ fontSize: num(p.size, 20), lineHeight: 1 }}>{e[2]}</span>;
+    }
     case "social": {
       const nets = (p.networks as string[] | undefined) ?? ["linkedin", "twitter"];
       return row(nets.map((n) => {
@@ -654,6 +668,19 @@ function BlockProps({ block, brand, onChange, onDelete, onDuplicate, onDone, dis
         {n("size", "Size (px)", 9, 20, 12)}{b("italic", "Italic")}{c("color", "Colour", "#1f2933")}{info("Placeholders such as {{company}} work here.")}</>}
       {block.type === "divider" && <>{c("color", "Colour", "#e1e6ec")}{n("thickness", "Thickness", 1, 6, 1)}</>}
       {block.type === "spacer" && n("height", "Height (px)", 2, 40, 8)}
+      {block.type === "emoji" && <>
+        <div className="pp-field"><span>Emoji</span>
+          <div className="emoji-pick" role="radiogroup" aria-label="Emoji">
+            {EMOJIS.map(([v, name, ch]) => (
+              <button key={v} type="button" role="radio" aria-checked={(p.emoji ?? "sun") === v} aria-label={name}
+                className={(p.emoji ?? "sun") === v ? "on" : ""} disabled={disabled} onClick={() => onChange({ emoji: v })}>
+                <span aria-hidden="true">{ch}</span><small>{name}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+        {n("size", "Size (px)", 12, 36, 20)}
+      </>}
       {block.type === "social" && <>{multi("networks", NETWORKS.map(([v, l]) => [v, l]), ["linkedin", "twitter"])}{info("Links are set once in the Brand kit. Networks without a link are hidden in email (shown faded here).")}</>}
       {block.type === "button" && <>{t("label", "Label", "Book a meeting")}{t("url", "Link", "https://", "Must start with https://")}{c("color", "Colour", "#2878d0")}</>}
       {block.type === "address" && info("Shows the office address from the Brand kit.")}

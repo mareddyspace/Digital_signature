@@ -225,6 +225,8 @@ def my_trust(db: Session = Depends(get_db), user: Employee = Depends(current_use
     names = _names(db)
     external = signature.build(db, user, ["customer@example.com"], "new", dry_run=True)
     internal = signature.build(db, user, [f"colleague@{settings.internal_domains[0]}"], "new", dry_run=True) if settings.internal_domains else None
+    # The version people paste into Outlook or Gmail settings: no per-email verification code.
+    for_mail_apps = signature.build(db, user, ["customer@example.com"], "new", static=True)
     perms = db.scalars(select(MailboxPermission).where(
         MailboxPermission.mailbox == user.email, MailboxPermission.review_state != "removed"))
     delegations = db.scalars(select(Delegation).where(
@@ -234,6 +236,7 @@ def my_trust(db: Session = Depends(get_db), user: Employee = Depends(current_use
         "me": {"name": user.name, "email": user.email, "job_title": user.job_title, "department": user.department},
         "signature_external": external.html,
         "signature_internal": internal.html if internal else "",
+        "signature_for_mail_apps": for_mail_apps.html,
         "who_can_send_as_me": [permission_out(db, p, names) for p in perms],
         "delegations": [delegation_out(d, names) for d in delegations],
     }

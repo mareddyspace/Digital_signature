@@ -69,7 +69,7 @@ export default function Permissions({ me }: { me: Employee }) {
               <td className="nowrap">{fmt(p.granted_at)}</td>
               <td className="nowrap">{p.last_used ? fmt(p.last_used) : "Never"}</td>
               <td>
-                {p.review_state === "removed" ? <Badge>removed</Badge> : p.flags.length ? p.flags.map((f) => <Badge key={f} tone="bad">{flagText(f)}</Badge>) : <Badge tone="good">OK</Badge>}
+                {p.review_state === "removed" ? <Badge>Removed</Badge> : p.flags.length ? p.flags.map((f) => <Badge key={f} tone="bad">{flagText(f)}</Badge>) : <Badge tone="good">OK</Badge>}
               </td>
               {isAdmin && (
                 <td className="nowrap">

@@ -51,7 +51,10 @@ def test_existing_database_without_history_is_stamped_and_keeps_its_data():
             "role, scope_department, active, synced_at) VALUES ('Old Admin', 'old@contoso.com', '', '', '', '', '', '', "
             "'admin', '', 1, CURRENT_TIMESTAMP)"))
     assert "role_source" not in {c["name"] for c in inspect(engine).get_columns("employees")}
+    assert "people" not in {c["name"] for c in inspect(engine).get_columns("signature_policies")}
     assert migrate.upgrade(engine) == migrate.head_revision()
+    assert {"people", "exclude_people", "recipient_domains", "starts_at", "ends_at"} <= {
+        c["name"] for c in inspect(engine).get_columns("signature_policies")}
     with engine.connect() as conn:
         assert conn.execute(text("SELECT value FROM settings WHERE key='k'")).scalar() == "kept"
         # Existing people keep their role, recorded as set in SignGuard.
@@ -67,7 +70,10 @@ def test_role_source_migration_can_be_undone():
     with engine.begin() as conn:
         command.downgrade(migrate._config(conn), migrate.BASELINE)
     assert "role_source" not in {c["name"] for c in inspect(engine).get_columns("employees")}
+    assert "people" not in {c["name"] for c in inspect(engine).get_columns("signature_policies")}
     assert migrate.upgrade(engine) == migrate.head_revision()
+    assert {"people", "exclude_people", "recipient_domains", "starts_at", "ends_at"} <= {
+        c["name"] for c in inspect(engine).get_columns("signature_policies")}
 
 
 def test_upgrade_is_safe_to_run_twice():

@@ -231,3 +231,25 @@ def test_policy_reorder_and_tester_extras(client):
     client.post("/api/policies/reorder", headers=ADMIN, json={"ids": ids})  # restore
     t = client.post("/api/policies/test", headers=ADMIN, json={"sender_email": "sara.khan@contoso.com", "recipients": ["x@fabrikam.com"]}).json()
     assert t["campaign"] == "Q4 product webinar" and "External confidentiality" in t["disclaimers"]
+
+
+def test_my_signature_has_a_copyable_version_without_a_fake_code(client):
+    r = client.get("/api/me/trust", headers={"X-Dev-User": "sara.khan@contoso.com"})
+    assert r.status_code == 200
+    body = r.json()
+    html = body["signature_for_mail_apps"]
+    assert "Sara Khan" in html
+    assert "SG-XXXX" not in html  # previews show a placeholder code; the pasted copy must not
+
+
+def test_emoji_element_offers_only_sun_night_cloud():
+    from app import designer
+    assert set(designer.EMOJIS) == {"sun", "night", "cloud"}
+    base = {"settings": {}, "blocks": [{"type": "name"}]}
+    for choice, entity in (("sun", "&#9728;"), ("night", "&#127769;"), ("cloud", "&#9729;")):
+        d = {**base, "blocks": base["blocks"] + [{"type": "emoji", "props": {"emoji": choice}}]}
+        assert entity in designer.compile_design(designer.normalize(d))
+    # Anything else falls back to the sun, never arbitrary text.
+    d = {**base, "blocks": [{"type": "emoji", "props": {"emoji": "<script>"}}]}
+    out = designer.compile_design(designer.normalize(d))
+    assert "&#9728;" in out and "<script>" not in out

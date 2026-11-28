@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { api, type Employee } from "../api";
-import { Badge, ErrorNote, Page, SeverityBadge, Toggle, useAction, useLoad } from "../ui";
+import { Badge, ErrorNote, Page, SeverityBadge, Skeleton, Toggle, useAction, useLoad } from "../ui";
 
 interface Insight {
   id: string;
@@ -12,15 +13,21 @@ interface Insight {
 interface Switch { key: string; label: string; enabled: boolean; locked: boolean }
 interface State { insights: Insight[]; switches: Switch[]; summary: Record<string, number> }
 
+interface Approval { mode: "two_admins" | "one_admin" | "off"; modes: Record<string, string> }
+const MODE_TITLE: Record<string, string> = { two_admins: "Two admins", one_admin: "One admin", off: "No approval" };
+
 export default function Automation({ me }: { me: Employee }) {
   const state = useLoad(() => api<State>("/automation"));
+  const approval = useLoad(() => api<Approval>("/settings/approval"));
+  const [pendingMode, setPendingMode] = useState<string | null>(null);
+  const saveMode = (k: string) => run(() => api("/settings/approval", { method: "PUT", body: { mode: k } }).then(() => { setPendingMode(null); return approval.reload(); }), "Approval setting saved.");
   const { run, busy, Notes } = useAction(() => state.reload());
   const isAdmin = me.role === "admin";
   const s = state.data?.summary ?? {};
 
   return (
     <Page
-      title="Automation"
+      title="Automation and approvals"
       intro="SignGuard watches your policies, templates, banners and directory, explains what's wrong and fixes it with one click. Scheduled jobs run every minute."
       actions={isAdmin && <button className="secondary" disabled={busy} onClick={() => run(async () => {
         const r = await api<{ campaigns_ended: number; policies_created: number }>("/automation/run", { body: {} });
@@ -51,6 +58,32 @@ export default function Automation({ me }: { me: Employee }) {
           </div>
         </div>
         <div>
+          <div className="card">
+            <h2>Signature approvals</h2>
+            <p className="sub" style={{ marginTop: 4 }}>Who must approve a signature change before it reaches email. Every change of this setting is recorded in the audit log.</p>
+            <ErrorNote error={approval.error} />
+            <div role="radiogroup" aria-label="Signature approvals" style={{ marginTop: 12 }}>
+              {approval.data && Object.entries(approval.data.modes).map(([k, text]) => (
+                <label key={k} className="radio-card">
+                  <input type="radio" name="approval" checked={approval.data!.mode === k} disabled={!isAdmin || busy}
+                    onChange={() => (k === "two_admins" ? saveMode(k) : setPendingMode(k))} />
+                  <span><strong>{MODE_TITLE[k] ?? k}{k === "two_admins" && " (recommended)"}</strong><small>{text}</small></span>
+                </label>
+              ))}
+              {!approval.data && !approval.error && <Skeleton lines={3} height={40} />}
+            </div>
+            {pendingMode && (
+              <div className="note warn" role="alert" style={{ marginTop: 12 }}>
+                <strong>Switch to “{MODE_TITLE[pendingMode]}”?</strong> {pendingMode === "off"
+                  ? "Signature changes will go live the moment they are submitted, without anyone checking them."
+                  : "Admins will be able to approve their own signature changes."}
+                <div className="row tight" style={{ marginTop: 8 }}>
+                  <button className="small" disabled={busy} onClick={() => saveMode(pendingMode)}>Switch</button>
+                  <button className="secondary small" disabled={busy} onClick={() => setPendingMode(null)}>Keep current setting</button>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="card">
             <h2>Automatic rules</h2>
             {state.data?.switches.map((sw) => (

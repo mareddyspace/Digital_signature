@@ -39,7 +39,7 @@ export default function Home({ me }: { me: Employee }) {
   const items: Item[] = [];
   if (d) {
     if (d.tampered_templates) items.push({ key: "tamper", sev: "critical", title: `${d.tampered_templates} signature${d.tampered_templates > 1 ? "s" : ""} failed the integrity check`, detail: "Changed outside the approval workflow, so they're blocked.", to: "/integrity", cta: "Review" });
-    if (d.pending_template_approvals) items.push({ key: "tpl", sev: "warning", title: `${d.pending_template_approvals} signature change${d.pending_template_approvals > 1 ? "s" : ""} waiting for approval`, detail: "A second admin must approve before it reaches email.", to: "/signatures", cta: "Review" });
+    if (d.pending_template_approvals) items.push({ key: "tpl", sev: "warning", title: `${d.pending_template_approvals} signature change${d.pending_template_approvals > 1 ? "s" : ""} waiting for approval`, detail: "Approve or reject it before it reaches email.", to: "/signatures", cta: "Review" });
     if (d.pending_delegations) items.push({ key: "del", sev: "warning", title: `${d.pending_delegations} delegation request${d.pending_delegations > 1 ? "s" : ""} to decide`, to: "/delegations", cta: "Decide" });
     if (d.flagged_permissions) items.push({ key: "perm", sev: "error", title: `${d.flagged_permissions} of ${d.total_permissions} mailbox access grants are flagged`, detail: "No approval on record, old, or never used.", to: "/permissions", cta: "Review" });
     if (d.unapproved_send_as_7d) items.push({ key: "sendas", sev: "error", title: `${d.unapproved_send_as_7d} unapproved send-as attempt${d.unapproved_send_as_7d > 1 ? "s" : ""} this week`, detail: "Someone wrote from another person's mailbox without a delegation.", to: "/audit", cta: "See audit log" });

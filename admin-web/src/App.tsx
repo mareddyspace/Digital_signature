@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation, useMatch } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useMatch, useNavigate } from "react-router-dom";
 
 import { api, getDevUser, setDevUser, type Me } from "./api";
 import { signIn, signOut, type AuthState } from "./auth";
@@ -28,24 +28,28 @@ type Counts = { pending_template_approvals: number; pending_delegations: number;
 const READ = ["admin", "dept_admin", "auditor"];
 const AUDIT = ["admin", "auditor"];
 
-// Simple 24px line icons (stroke uses currentColor via CSS).
+// One line-icon set (24px grid, 1.75 stroke, currentColor). Paths drawn in the Lucide style.
 const ICONS: Record<string, string> = {
-  home: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
-  signatures: "M4 5h16v14H4zM8 9h8M8 13h5",
-  rules: "M4 6h10M4 12h16M4 18h7M17 4v4M14 16l3 3 4-5",
-  campaigns: "M3 10v4l11 5V5zM14 8h3a4 4 0 0 1 0 8h-3M6 15l1 5h3l-1-4",
-  disclaimers: "M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6",
-  analytics: "M4 20V10M10 20V4M16 20v-7M22 20H2",
-  people: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21a7 7 0 0 1 14 0M17 11a3 3 0 1 0 0-6M22 21a6 6 0 0 0-4-5.7",
-  delegations: "M7 7h13l-3-3M17 17H4l3 3",
-  permissions: "M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4",
-  integrity: "M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6zM9 12l2 2 4-4",
-  audit: "M12 7v5l3 2M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9z",
-  brand: "M12 3a9 9 0 1 0 0 18c1 0 1.5-.7 1.5-1.5 0-1-.8-1.4-.8-2.3 0-.9.7-1.2 1.6-1.2H17a4 4 0 0 0 4-4c0-5-4-9-9-9zM7.5 11h.01M10 7h.01M15 7h.01",
-  integrations: "M8 7V3M16 7V3M6 7h12v4a6 6 0 0 1-12 0zM12 17v4",
-  automation: "M20 12a8 8 0 0 1-14.3 4.9M4 12A8 8 0 0 1 18.3 7.1M18 3v4h-4M6 21v-4h4",
-  mysig: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0",
-  compose: "M4 20h4L19 9l-4-4L4 16zM14 6l4 4",
+  home: "M3 10.5 12 3l9 7.5M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5",
+  signatures: "M4 4h16v16H4zM8 9h8M8 13h8M8 17h5",
+  rules: "M3 6h11M3 12h18M3 18h8M17 3v6M14 6h6M15 16l2 2 4-4",
+  campaigns: "M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13",
+  disclaimers: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h6",
+  analytics: "M3 3v18h18M7 15l4-4 3 3 6-6",
+  people: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8",
+  delegations: "M17 3l4 4-4 4M21 7H9M7 21l-4-4 4-4M3 17h12",
+  permissions: "M5 11h14a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1zM8 11V7a4 4 0 0 1 8 0v4",
+  integrity: "M12 22s8-3.5 8-10V5l-8-3-8 3v7c0 6.5 8 10 8 10zM9 12l2 2 4-4",
+  audit: "M12 8v4l3 2M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5",
+  brand: "M12 21a9 9 0 1 1 9-9c0 2.2-1.8 3-3.5 3H15a2 2 0 0 0-1.4 3.4c.5.5.4 1.6-.4 2.2-.4.3-.8.4-1.2.4zM7.5 11.5h.01M10.5 7.5h.01M15.5 8.5h.01",
+  integrations: "M9 7V2M15 7V2M6 7h12v4a6 6 0 0 1-12 0zM12 17v5",
+  automation: "M21 12a9 9 0 0 1-15.4 6.4M3 12A9 9 0 0 1 18.4 5.6M18 2v4h-4M6 22v-4h4",
+  mysig: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
+  compose: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z",
+  settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+  search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3",
+  menu: "M4 6h16M4 12h16M4 18h16",
+  external: "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6",
 };
 
 function Icon({ name }: { name: string }) {
@@ -53,8 +57,9 @@ function Icon({ name }: { name: string }) {
 }
 
 type Item = { to: string; label: string; icon: string; roles?: string[]; count?: keyof Counts };
-const NAV: { title?: string; items: Item[]; foot?: boolean }[] = [
+const NAV: { title?: string; items: Item[] }[] = [
   {
+    title: "Overview",
     items: [
       { to: "/home", label: "Home", icon: "home", roles: READ },
       { to: "/my-trust", label: "My signature", icon: "mysig" },
@@ -67,35 +72,38 @@ const NAV: { title?: string; items: Item[]; foot?: boolean }[] = [
       { to: "/rules", label: "Rules", icon: "rules", roles: READ },
       { to: "/campaigns", label: "Campaigns", icon: "campaigns", roles: READ },
       { to: "/disclaimers", label: "Disclaimers", icon: "disclaimers", roles: READ },
-      { to: "/analytics", label: "Analytics", icon: "analytics", roles: READ },
     ],
   },
   {
-    title: "Directory & security",
+    title: "People & access",
     items: [
       { to: "/people", label: "People", icon: "people", roles: READ },
       { to: "/delegations", label: "Delegations", icon: "delegations", count: "pending_delegations" },
       { to: "/permissions", label: "Mailbox access", icon: "permissions", roles: AUDIT, count: "flagged_permissions" },
+    ],
+  },
+  {
+    title: "Insights",
+    items: [
+      { to: "/analytics", label: "Analytics", icon: "analytics", roles: READ },
       { to: "/integrity", label: "Integrity", icon: "integrity", roles: READ },
       { to: "/audit", label: "Audit log", icon: "audit", roles: AUDIT },
     ],
   },
-  {
-    title: "Settings",
-    foot: true,
-    items: [
-      { to: "/settings/brand", label: "Brand kit", icon: "brand", roles: READ },
-      { to: "/settings/integrations", label: "Integrations", icon: "integrations", roles: READ },
-      { to: "/settings/automation", label: "Automation", icon: "automation", roles: READ },
-    ],
-  },
+];
+
+// Settings live behind the gear in the app bar.
+const SETTINGS: Item[] = [
+  { to: "/settings/brand", label: "Brand kit", icon: "brand", roles: READ },
+  { to: "/settings/integrations", label: "Integrations", icon: "integrations", roles: READ },
+  { to: "/settings/automation", label: "Automation & approvals", icon: "automation", roles: READ },
 ];
 
 const TITLES: [string, string][] = [
   ["/home", "Home"], ["/signatures", "Signatures"], ["/rules", "Rules"], ["/campaigns", "Campaigns"],
   ["/disclaimers", "Disclaimers"], ["/analytics", "Analytics"], ["/people", "People"], ["/delegations", "Delegations"],
   ["/permissions", "Mailbox access"], ["/integrity", "Integrity"], ["/audit", "Audit log"], ["/settings/brand", "Brand kit"],
-  ["/settings/integrations", "Integrations"], ["/settings/automation", "Automation"], ["/my-trust", "My signature"],
+  ["/settings/integrations", "Integrations"], ["/settings/automation", "Automation & approvals"], ["/my-trust", "My signature"],
   ["/compose", "Outlook simulator"],
 ];
 
@@ -143,7 +151,10 @@ function SignedIn({ auth }: { auth: AuthState }) {
   const [error, setError] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const editing = useMatch("/signatures/:id");
 
@@ -163,7 +174,25 @@ function SignedIn({ auth }: { auth: AuthState }) {
     api<Counts>("/trust-center").then(setCounts).catch(() => setCounts(null));
   }, [me, location.pathname]);
 
-  useEffect(() => { setNavOpen(false); setMenuOpen(false); }, [location.pathname]);
+  useEffect(() => { setNavOpen(false); setMenuOpen(false); setSettingsOpen(false); setPaletteOpen(false); }, [location.pathname]);
+
+  // Ctrl+K (Cmd+K) opens "Go to", a keyboard way to reach any page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPaletteOpen(true); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const close = (e: MouseEvent) => { if (!settingsRef.current?.contains(e.target as Node)) setSettingsOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setSettingsOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -185,7 +214,7 @@ function SignedIn({ auth }: { auth: AuthState }) {
     <div className={`app ${editing ? "full" : ""}`}>
       {!editing && (
         <header className="header">
-          <button className="icon menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(!navOpen)}>☰</button>
+          <button className="icon menu-toggle" aria-label="Open navigation" onClick={() => setNavOpen(!navOpen)}><Icon name="menu" /></button>
           <NavLink to={home} className="header-brand">
             <svg viewBox="0 0 40 40" width="22" height="22" aria-hidden="true">
               <path d="M20 3L34 8V19C34 28 28 34 20 38C12 34 6 28 6 19V8L20 3Z" fill="currentColor" />
@@ -195,11 +224,27 @@ function SignedIn({ auth }: { auth: AuthState }) {
           </NavLink>
           <span className="header-title">{title}</span>
           <span className="header-spacer" />
+          <button className="header-search" onClick={() => setPaletteOpen(true)} aria-label="Go to a page (Ctrl+K)">
+            <Icon name="search" /><span>Go to…</span><kbd>Ctrl K</kbd>
+          </button>
           {demo
             ? <span className="env-pill" title="Sample data. Switch accounts to see each role; nothing you change is saved.">Read-only demo</span>
             : !entra && users.length > 0 && <span className="env-pill" title="AUTH_MODE=dev: anyone can act as any user. Use Entra sign-in in production.">Dev sign-in</span>}
+          {SETTINGS.some(visible) && (
+            <div className="account" ref={settingsRef}>
+              <button className="icon header-icon" aria-label="Settings" aria-haspopup="menu" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(!settingsOpen)}><Icon name="settings" /></button>
+              {settingsOpen && (
+                <div className="menu" role="menu">
+                  <div className="menu-section">Settings</div>
+                  {SETTINGS.filter(visible).map((i) => (
+                    <NavLink key={i.to} to={i.to} className="menu-item with-icon" role="menuitem"><Icon name={i.icon} />{i.label}</NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="account" ref={menuRef}>
-            <button className="account-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
+            <button className="account-button" aria-label={`Account: ${me?.name ?? ""}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
               <span className="avatar">{initials(displayName)}</span>
               <span className="account-text">{displayName}<small>{me ? ROLE_TEXT[me.role] ?? me.role : "…"}</small></span>
             </button>
@@ -235,17 +280,19 @@ function SignedIn({ auth }: { auth: AuthState }) {
         </header>
       )}
 
+      {paletteOpen && <GoTo items={[...NAV.flatMap((g) => g.items), ...SETTINGS].filter(visible)} onClose={() => setPaletteOpen(false)} />}
+
       {!editing && (
         <aside className={`sidebar ${navOpen ? "open" : ""}`}>
           <nav aria-label="Main">
-            {NAV.filter((g) => !g.foot).map((g, gi) => {
+            {NAV.map((g, gi) => {
               const items = g.items.filter(visible);
               if (!items.length) return null;
               return (
                 <div className="nav-group" key={gi}>
                   {g.title && <div className="nav-title">{g.title}</div>}
                   {items.map((i) => (
-                    <NavLink key={i.to} to={i.to} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+                    <NavLink key={i.to} to={i.to} aria-label={i.label} title={i.label} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
                       <Icon name={i.icon} />
                       <span>{i.label}</span>
                       {i.count && counts && counts[i.count] > 0 && <span className="nav-count" aria-label={`${counts[i.count]} need attention`}>{counts[i.count]}</span>}
@@ -255,20 +302,6 @@ function SignedIn({ auth }: { auth: AuthState }) {
               );
             })}
           </nav>
-          {NAV.filter((g) => g.foot).map((g) => {
-            const items = g.items.filter(visible);
-            if (!items.length) return null;
-            return (
-              <div className="sidebar-foot" key="foot">
-                <div className="nav-title">{g.title}</div>
-                {items.map((i) => (
-                  <NavLink key={i.to} to={i.to} className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
-                    <Icon name={i.icon} /><span>{i.label}</span>
-                  </NavLink>
-                ))}
-              </div>
-            );
-          })}
         </aside>
       )}
 
@@ -312,6 +345,41 @@ function SignedIn({ auth }: { auth: AuthState }) {
           </Routes>
         )}
       </main>
+    </div>
+  );
+}
+
+/** "Go to" palette: type part of a page name, arrow keys to choose, Enter to open. */
+function GoTo({ items, onClose }: { items: Item[]; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const navigate = useNavigate();
+  const extra: Item[] = [{ to: "/compose", label: "Outlook simulator", icon: "compose" }];
+  const all = [...items, ...extra];
+  const hits = all.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
+  const go = (i?: Item) => { if (i) { navigate(i.to); onClose(); } };
+  return (
+    <div className="palette-backdrop" onMouseDown={onClose}>
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Go to a page" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="palette-input"><Icon name="search" />
+          <input autoFocus placeholder="Go to a page…" value={q} aria-label="Page name"
+            onChange={(e) => { setQ(e.target.value); setSel(0); }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onClose();
+              else if (e.key === "ArrowDown") { e.preventDefault(); setSel((n) => Math.min(n + 1, hits.length - 1)); }
+              else if (e.key === "ArrowUp") { e.preventDefault(); setSel((n) => Math.max(n - 1, 0)); }
+              else if (e.key === "Enter") go(hits[sel]);
+            }} />
+        </div>
+        <ul className="palette-list" role="listbox" aria-label="Pages">
+          {hits.map((i, n) => (
+            <li key={i.to} role="option" aria-selected={n === sel}>
+              <button className={n === sel ? "on" : ""} onMouseEnter={() => setSel(n)} onClick={() => go(i)}><Icon name={i.icon} />{i.label}</button>
+            </li>
+          ))}
+          {!hits.length && <li className="palette-empty">No page called “{q}”.</li>}
+        </ul>
+      </div>
     </div>
   );
 }

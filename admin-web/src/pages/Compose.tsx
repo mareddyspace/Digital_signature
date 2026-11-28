@@ -96,7 +96,7 @@ export default function Compose({ me }: { me: Employee }) {
               {sig && (
                 <>
                   <Badge tone={sig.recipient_type === "internal" ? "info" : "neutral"}>{sig.recipient_type === "internal" ? "colleagues only" : "outside recipients"}</Badge>
-                  {sig.on_behalf_of && <Badge tone="good">on behalf of {sig.on_behalf_of}</Badge>}
+                  {sig.on_behalf_of && <Badge tone="good">On behalf of {sig.on_behalf_of}</Badge>}
                   <span className="sub">{sig.template_name ?? "No signature"}: {sig.reason}</span>
                 </>
               )}

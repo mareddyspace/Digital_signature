@@ -52,6 +52,30 @@ def set_switch(db: Session, key: str, value: bool, actor: str) -> None:
     audit.record(db, actor, "automation.switch_changed", "setting", key, value=value)
 
 
+APPROVAL_MODES = {
+    "two_admins": "A second admin approves every change (nobody approves their own)",
+    "one_admin": "Any admin approves, including their own change",
+    "off": "Changes go live when submitted (checks still run)",
+}
+
+
+def approval_mode(db: Session) -> str:
+    row = db.get(Setting, "approval.mode")
+    return row.value if row is not None and row.value in APPROVAL_MODES else "two_admins"
+
+
+def set_approval_mode(db: Session, mode: str, actor: str) -> None:
+    if mode not in APPROVAL_MODES:
+        raise KeyError(mode)
+    before = approval_mode(db)
+    row = db.get(Setting, "approval.mode")
+    if row is None:
+        row = Setting(key="approval.mode")
+        db.add(row)
+    row.value, row.updated_by, row.updated_at = mode, actor, utcnow()
+    audit.record(db, actor, "approval.mode_changed", "setting", "approval.mode", before=before, after=mode)
+
+
 def switches(db: Session) -> list[dict]:
     return [{"key": k, "label": label, "enabled": get_switch(db, k), "locked": k == "block_tampered_templates"}
             for k, (_, label) in SWITCHES.items()]
@@ -63,6 +87,11 @@ def _depts(p: SignaturePolicy) -> set[str]:
 
 def _covers(a: SignaturePolicy, b: SignaturePolicy) -> bool:
     """True when every email b matches is already matched by a (so b can never win)."""
+    # A rule narrowed to people, domains, exceptions or dates doesn't match everything: never call it covering.
+    if a.people.strip() or a.exclude_people.strip() or a.recipient_domains.strip() or a.starts_at or a.ends_at:
+        return False
+    if b.people.strip() and not b.departments.strip() and a.departments.strip():
+        return False
     da, db_ = _depts(a), _depts(b)
     dept_ok = not da or (bool(db_) and db_ <= da)
     r_ok = a.recipient_type == "any" or a.recipient_type == b.recipient_type
@@ -164,7 +193,7 @@ def insights(db: Session) -> list[dict[str, Any]]:
     # Directory data that leaves gaps in signatures.
     missing = [e for e in db.scalars(select(Employee).where(Employee.active)) if not (e.job_title and e.department and e.phone)]
     if missing:
-        add("info", f"{len(missing)} people have incomplete directory details",
+        add("info", f"{len(missing)} {'person has' if len(missing) == 1 else 'people have'} incomplete directory details",
             "Their signatures leave out the missing lines. Fix the data in Microsoft 365 or Google Workspace, then sync.",
             area="directory")
 

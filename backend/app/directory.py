@@ -35,7 +35,13 @@ def _graph_token() -> str:
         },
         timeout=30,
     )
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        # Microsoft's own explanation (e.g. AADSTS7000215: invalid client secret) is the useful part.
+        try:
+            detail = resp.json().get("error_description", "").split("\r\n")[0]
+        except ValueError:
+            detail = resp.text[:300]
+        raise RuntimeError(f"Microsoft refused SignGuard's directory sign-in ({resp.status_code}): {detail}")
     return resp.json()["access_token"]
 
 

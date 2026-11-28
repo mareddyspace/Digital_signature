@@ -30,8 +30,14 @@ SAFE_FONTS = (
 )
 BLOCK_TYPES = (
     "logo", "photo", "name", "title", "contact", "text", "divider", "spacer",
-    "social", "address", "button", "delegation", "verification", "banner", "disclaimer",
+    "social", "address", "button", "delegation", "verification", "banner", "disclaimer", "emoji",
 )
+# The emoji element offers exactly these three. HTML entities keep the stored HTML plain ASCII.
+EMOJIS = {
+    "sun": ("Sun", "&#9728;&#65039;"),
+    "night": ("Night", "&#127769;"),
+    "cloud": ("Cloud", "&#9729;&#65039;"),
+}
 SOCIAL_NETWORKS = {
     "linkedin": ("LinkedIn", "{{linkedin_url}}"),
     "twitter": ("X", "{{twitter_url}}"),
@@ -188,6 +194,11 @@ def render_block(b: dict, s: dict) -> str:
         return (f'<tr><td style="padding:8px 0;"><table cellpadding="0" cellspacing="0" border="0" width="100%">'
                 f'<tr><td style="border-top:{thick}px solid {c};font-size:1px;line-height:1px;">&nbsp;</td></tr>'
                 f"</table></td></tr>")
+    if t == "emoji":
+        choice = p.get("emoji") if p.get("emoji") in EMOJIS else "sun"
+        size = number(p.get("size"), 20, 12, 36)
+        label, entity = EMOJIS[choice]
+        return _cell(f'<span role="img" aria-label="{label}" style="font-size:{size}px;line-height:1;">{entity}</span>', "", "4px 0")
     if t == "spacer":
         h = number(p.get("height"), 8, 2, 40)
         return f'<tr><td style="height:{h}px;font-size:1px;line-height:1px;">&nbsp;</td></tr>'

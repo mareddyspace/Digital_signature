@@ -2,12 +2,12 @@
 import csv
 import io
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -213,6 +213,41 @@ def update_template(template_id: int, body: TemplateUpdate, db: Session = Depend
     return template_out(db, t)
 
 
+class DuplicateIn(BaseModel):
+    name: str | None = Field(default=None, max_length=200)
+
+
+def _copy_name(db: Session, base: str) -> str:
+    n = 1
+    while True:
+        name = f"{base} (copy)" if n == 1 else f"{base} (copy {n})"
+        if not db.scalar(select(Template).where(Template.name == name)):
+            return name[:200]
+        n += 1
+
+
+@router.post("/templates/{template_id}/duplicate")
+def duplicate_template(template_id: int, body: DuplicateIn | None = None, db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN_OR_DEPT))):
+    """Start a new template from an existing one. The copy is a draft: it goes through approval like any new template."""
+    src = db.get(Template, template_id) or _404()
+    source = db.get(TemplateVersion, src.live_version_id) if src.live_version_id else latest_version(db, src.id)
+    if not source:
+        raise HTTPException(409, "This template has no content to copy")
+    name = (body.name.strip() if body and body.name else "") or _copy_name(db, src.name)
+    if db.scalar(select(Template).where(Template.name == name)):
+        raise HTTPException(409, "A template with this name already exists")
+    t = Template(name=name, description=src.description, created_by=user.email)
+    db.add(t)
+    db.flush()
+    v = TemplateVersion(template_id=t.id, number=1, html=source.html, created_by=user.email)
+    db.add(v)
+    db.flush()
+    _save_design(db, v.id, _design(db, source.id))
+    audit.record(db, user.email, "template.duplicated", "template", t.id, name=t.name, source=src.id, source_version=source.number)
+    db.commit()
+    return template_out(db, t)
+
+
 @router.post("/templates/{template_id}/submit")
 def submit_template(template_id: int, db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN_OR_DEPT))):
     t = db.get(Template, template_id) or _404()
@@ -230,8 +265,23 @@ def submit_template(template_id: int, db: Session = Depends(get_db), user: Emplo
         ] + [i["message"] for i in report["issues"] if i["severity"] in ("critical", "error")]})
     latest.status = "pending"
     audit.record(db, user.email, "template.submitted", "template", t.id, version=latest.number)
+    if automation.approval_mode(db) == "off":
+        # Approvals switched off by an admin: the change goes live now, still sealed and audit-logged.
+        _make_live(db, t, latest, user.email, note="approval switched off")
     db.commit()
     return template_out(db, t)
+
+
+def _make_live(db: Session, t: Template, version: TemplateVersion, actor: str, note: str = "") -> None:
+    version.decided_by, version.decided_at = actor, utcnow()
+    if t.live_version_id:
+        old = db.get(TemplateVersion, t.live_version_id)
+        if old:
+            old.status = "retired"
+    version.status = "live"
+    t.live_version_id = version.id
+    integrity.seal_version(db, version, actor)
+    audit.record(db, actor, "template.approved", "template", t.id, version=version.number, note=note)
 
 
 class Decision(BaseModel):
@@ -245,20 +295,14 @@ def decide_template(template_id: int, body: Decision, background: BackgroundTask
     latest = latest_version(db, t.id)
     if not latest or latest.status != "pending":
         raise HTTPException(409, "Nothing is waiting for approval")
-    if latest.created_by == user.email:
+    if body.decision == "approve" and latest.created_by == user.email and automation.approval_mode(db) == "two_admins":
         raise HTTPException(403, "You can't approve your own change; another admin must do it")
-    latest.decided_by, latest.decided_at = user.email, utcnow()
     if body.decision == "approve":
-        if t.live_version_id:
-            old = db.get(TemplateVersion, t.live_version_id)
-            if old:
-                old.status = "retired"
-        latest.status = "live"
-        t.live_version_id = latest.id
-        integrity.seal_version(db, latest, user.email)
+        _make_live(db, t, latest, user.email, note=body.note)
     else:
+        latest.decided_by, latest.decided_at = user.email, utcnow()
         latest.status = "rejected"
-    audit.record(db, user.email, f"template.{body.decision}d", "template", t.id, version=latest.number, note=body.note)
+        audit.record(db, user.email, "template.rejected", "template", t.id, version=latest.number, note=body.note)
     db.commit()
     if body.decision == "approve" and settings.google_configured and automation.get_switch(db, "auto_deploy_on_approval"):
         d = deployments.create(db, "google_workspace", "all", "", "system")
@@ -315,6 +359,24 @@ def preview_template(body: PreviewIn, db: Session = Depends(get_db), _: Employee
             "compliance": compliance.check(body.html, extras.brand_dict(brand))}
 
 
+# ---------- approval setting ----------
+
+class ApprovalIn(BaseModel):
+    mode: Literal["two_admins", "one_admin", "off"]
+
+
+@router.get("/settings/approval")
+def get_approval(db: Session = Depends(get_db), _: Employee = Depends(require_role(*READERS))):
+    return {"mode": automation.approval_mode(db), "modes": automation.APPROVAL_MODES}
+
+
+@router.put("/settings/approval")
+def put_approval(body: ApprovalIn, db: Session = Depends(get_db), user: Employee = Depends(require_role(*ADMIN))):
+    automation.set_approval_mode(db, body.mode, user.email)
+    db.commit()
+    return {"mode": automation.approval_mode(db), "modes": automation.APPROVAL_MODES}
+
+
 # ---------- policies ----------
 
 class PolicyIn(BaseModel):
@@ -325,6 +387,42 @@ class PolicyIn(BaseModel):
     message_type: Literal["new", "reply", "any"] = "any"
     template_id: int
     enabled: bool = True
+    people: str = Field(default="", max_length=20000)
+    exclude_people: str = Field(default="", max_length=20000)
+    recipient_domains: str = Field(default="", max_length=1000)
+    starts_at: datetime | None = None
+    ends_at: datetime | None = None
+
+    @field_validator("people", "exclude_people")
+    @classmethod
+    def _emails(cls, v: str) -> str:
+        items = [x.strip().lower() for x in v.split(",") if x.strip()]
+        bad = [x for x in items if "@" not in x or " " in x]
+        if bad:
+            raise ValueError(f"Not an email address: {', '.join(bad[:3])}")
+        return ", ".join(dict.fromkeys(items))
+
+    @field_validator("recipient_domains")
+    @classmethod
+    def _domains(cls, v: str) -> str:
+        items = [x.strip().lower().lstrip("@") for x in v.split(",") if x.strip()]
+        bad = [x for x in items if "." not in x or " " in x or "@" in x]
+        if bad:
+            raise ValueError(f"Not a domain: {', '.join(bad[:3])}")
+        return ", ".join(dict.fromkeys(items))
+
+    @field_validator("starts_at", "ends_at")
+    @classmethod
+    def _naive_utc(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is not None:
+            v = v.astimezone(timezone.utc).replace(tzinfo=None)
+        return v
+
+    @model_validator(mode="after")
+    def _window(self):
+        if self.starts_at and self.ends_at and self.ends_at <= self.starts_at:
+            raise ValueError("The end date must be after the start date")
+        return self
 
 
 def policy_out(db: Session, p: SignaturePolicy) -> dict:
@@ -333,6 +431,8 @@ def policy_out(db: Session, p: SignaturePolicy) -> dict:
         "id": p.id, "name": p.name, "priority": p.priority, "departments": p.departments,
         "recipient_type": p.recipient_type, "message_type": p.message_type,
         "template_id": p.template_id, "template_name": t.name if t else None, "enabled": p.enabled,
+        "people": p.people, "exclude_people": p.exclude_people, "recipient_domains": p.recipient_domains,
+        "starts_at": p.starts_at, "ends_at": p.ends_at,
     }
 
 
@@ -348,7 +448,7 @@ def create_policy(body: PolicyIn, db: Session = Depends(get_db), user: Employee 
     p = SignaturePolicy(**body.model_dump())
     db.add(p)
     db.flush()
-    audit.record(db, user.email, "policy.created", "policy", p.id, **body.model_dump())
+    audit.record(db, user.email, "policy.created", "policy", p.id, **body.model_dump(mode="json"))
     db.commit()
     return policy_out(db, p)
 
@@ -359,7 +459,7 @@ def update_policy(policy_id: int, body: PolicyIn, db: Session = Depends(get_db),
     db.get(Template, body.template_id) or _404()
     for k, v in body.model_dump().items():
         setattr(p, k, v)
-    audit.record(db, user.email, "policy.updated", "policy", p.id, **body.model_dump())
+    audit.record(db, user.email, "policy.updated", "policy", p.id, **body.model_dump(mode="json"))
     db.commit()
     return policy_out(db, p)
 

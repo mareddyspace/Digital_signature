@@ -175,3 +175,19 @@ def test_my_trust_and_audit_access(client):
     assert client.get("/api/audit", headers=SARA).status_code == 403
     tc = client.get("/api/trust-center", headers=ADMIN).json()
     assert tc["employees"] == 8 and tc["employees_with_data_issues"] == 1
+
+
+def test_duplicate_template_makes_a_draft_copy(client):
+    src = next(t for t in client.get("/api/templates", headers=ADMIN).json() if t["name"] == "Full external")
+    r = client.post(f"/api/templates/{src['id']}/duplicate", headers=ADMIN)
+    assert r.status_code == 200
+    copy = r.json()
+    assert copy["name"].startswith("Full external (copy")
+    assert copy["live_version"] is None and copy["latest"]["status"] == "draft"
+    assert copy["latest"]["html"] == src["live_html"]
+    # A second copy gets a new name, and a chosen name that is taken is refused.
+    again = client.post(f"/api/templates/{src['id']}/duplicate", headers=ADMIN).json()
+    assert again["name"] != copy["name"]
+    assert client.post(f"/api/templates/{src['id']}/duplicate", headers=ADMIN, json={"name": "Full external"}).status_code == 409
+    # People without editing rights can't copy.
+    assert client.post(f"/api/templates/{src['id']}/duplicate", headers=SARA).status_code == 403

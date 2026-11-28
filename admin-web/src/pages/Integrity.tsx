@@ -47,13 +47,13 @@ export default function Integrity() {
                 <tr key={s.template_id}>
                   <td>{s.name}</td>
                   <td>{s.version}</td>
-                  <td><Badge tone={TONE[s.status]}>{s.status}</Badge></td>
+                  <td><Badge tone={TONE[s.status]}>{s.status.charAt(0).toUpperCase() + s.status.slice(1)}</Badge></td>
                   <td><code className="hash" title={s.sha256}>{s.sha256.slice(0, 16)}…</code></td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="sub">Seals are HMAC-SHA256 with the server's CODE_SECRET, written when a second admin approves a version.</p>
+          <p className="sub">Seals are HMAC-SHA256 with the server's CODE_SECRET, written when a version is approved (see Automation & approvals).</p>
         </div>
         <div className="card">
           <h2>Check a received signature</h2>

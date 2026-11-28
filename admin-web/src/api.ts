@@ -168,7 +168,7 @@ export interface ComplianceReport {
 
 export type BlockType =
   | "logo" | "photo" | "name" | "title" | "contact" | "text" | "divider" | "spacer"
-  | "social" | "address" | "button" | "delegation" | "verification" | "banner" | "disclaimer";
+  | "social" | "address" | "button" | "delegation" | "verification" | "banner" | "disclaimer" | "emoji";
 
 export interface DesignBlock {
   id: string;

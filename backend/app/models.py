@@ -75,6 +75,15 @@ class SignaturePolicy(Base):
     message_type: Mapped[str] = mapped_column(String(10), default="any")
     template_id: Mapped[int] = mapped_column(ForeignKey("templates.id"))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Comma-separated sender emails. A rule with departments and people matches either.
+    people: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Comma-separated sender emails this rule never applies to.
+    exclude_people: Mapped[str] = mapped_column(Text, default="", server_default="")
+    # Comma-separated domains; when set, at least one recipient must be in one (subdomains included).
+    recipient_domains: Mapped[str] = mapped_column(String(1000), default="", server_default="")
+    # Optional schedule (UTC). Outside it the rule is skipped.
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime)
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Delegation(Base):

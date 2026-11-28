@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Employee } from "../api";
-import { Badge, Drawer, ErrorNote, Page, SignatureThumb, Toggle, useLoad } from "../ui";
+import { Badge, Drawer, ErrorNote, Page, SignatureThumb, Toggle, fromLocalInput, toLocalInput, useConfirm, useLoad } from "../ui";
 import type { TemplateRow } from "./Signatures";
 
 interface Policy {
   id: number; name: string; priority: number; departments: string; recipient_type: string;
   message_type: string; template_id: number; template_name: string | null; enabled: boolean;
+  people: string; exclude_people: string; recipient_domains: string; starts_at: string | null; ends_at: string | null;
 }
 type Form = Omit<Policy, "id" | "template_name"> & { id?: number };
 
@@ -19,7 +20,31 @@ const TYPES: [string, string][] = [["any", "New emails, replies and forwards"], 
 const R_SHORT: Record<string, string> = { any: "Anyone", external: "External", internal: "Internal only" };
 const T_SHORT: Record<string, string> = { any: "All email", new: "New email", reply: "Replies & forwards" };
 
-const depts = (s: string) => s.split(",").map((d) => d.trim()).filter(Boolean);
+const depts = (s: string | null | undefined) => (s ?? "").split(",").map((d) => d.trim()).filter(Boolean);
+const lower = (s: string) => depts(s).map((x) => x.toLowerCase());
+const domainOf = (email: string) => email.split("@")[1]?.toLowerCase() ?? "";
+const inDomains = (d: string, wanted: string[]) => wanted.some((w) => d === w || d.endsWith(`.${w}`));
+const asUtc = (v: string) => new Date(v.endsWith("Z") || v.includes("+") ? v : `${v}Z`);
+
+/** Senders column text: departments and/or named people, minus exceptions. */
+function sendersText(p: { departments: string; people: string; exclude_people: string }) {
+  const parts = [...depts(p.departments), ...(depts(p.people).length ? [`${depts(p.people).length} named ${depts(p.people).length === 1 ? "person" : "people"}`] : [])];
+  return { main: parts.length ? parts.join(", ") : "Everyone", except: depts(p.exclude_people).length };
+}
+
+function scheduleText(p: { starts_at: string | null; ends_at: string | null }) {
+  const d = (v: string) => asUtc(v).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  if (p.starts_at && p.ends_at) return `${d(p.starts_at)} – ${d(p.ends_at)}`;
+  if (p.starts_at) return `From ${d(p.starts_at)}`;
+  if (p.ends_at) return `Until ${d(p.ends_at)}`;
+  return "";
+}
+
+function scheduleState(p: { starts_at: string | null; ends_at: string | null }, now = new Date()): "upcoming" | "ended" | null {
+  if (p.starts_at && now < asUtc(p.starts_at)) return "upcoming";
+  if (p.ends_at && now >= asUtc(p.ends_at)) return "ended";
+  return null;
+}
 
 export default function Rules({ me }: { me: Employee }) {
   const [params, setParams] = useSearchParams();
@@ -45,6 +70,7 @@ export default function Rules({ me }: { me: Employee }) {
 // ---------------------------------------------------------------- list
 
 function RuleList({ me }: { me: Employee }) {
+  const [ask, confirmDialog] = useConfirm();
   const policies = useLoad(() => api<Policy[]>("/policies"));
   const templates = useLoad(() => api<TemplateRow[]>("/templates"));
   const people = useLoad(() => api<Employee[]>("/employees"));
@@ -74,6 +100,8 @@ function RuleList({ me }: { me: Employee }) {
   const bodyOf = (p: Policy | Form) => ({
     name: p.name, priority: p.priority, departments: p.departments, recipient_type: p.recipient_type,
     message_type: p.message_type, template_id: p.template_id, enabled: p.enabled,
+    people: p.people, exclude_people: p.exclude_people, recipient_domains: p.recipient_domains,
+    starts_at: p.starts_at, ends_at: p.ends_at,
   });
   const reorder = (ids: number[]) => act(() => api("/policies/reorder", { body: { ids } }), "Order saved.");
   const move = (id: number, dir: -1 | 1) => {
@@ -94,12 +122,13 @@ function RuleList({ me }: { me: Employee }) {
   };
   const toggle = (p: Policy) => act(() => api(`/policies/${p.id}`, { method: "PUT", body: { ...bodyOf(p), enabled: !p.enabled } }),
     p.enabled ? `"${p.name}" is off.` : `"${p.name}" is on.`);
-  const remove = (p: Policy) => window.confirm(`Delete the rule "${p.name}"? Emails it matched will fall through to the next rule.`) &&
+  const remove = async (p: Policy) => (await ask({ title: `Delete the rule "${p.name}"?`, detail: "Emails it matched will fall through to the next rule.", confirm: "Delete rule", danger: true })) &&
     act(() => api(`/policies/${p.id}`, { method: "DELETE" }), "Rule deleted.");
   const duplicate = (p: Policy) => setEditing({ ...bodyOf(p), name: `${p.name} (copy)`, enabled: false, priority: p.priority + 1 });
   const startNew = () => setEditing({
     name: "", priority: (list.length ? Math.max(...list.map((p) => p.priority)) : 0) + 10, departments: "",
     recipient_type: "external", message_type: "any", template_id: templates.data?.find((t) => t.live_version)?.id ?? 0, enabled: true,
+    people: "", exclude_people: "", recipient_domains: "", starts_at: null, ends_at: null,
   });
 
   return (
@@ -140,17 +169,20 @@ function RuleList({ me }: { me: Employee }) {
                       )}
                     </div>
                   </td>
-                  <td><button className="link-button rule-name" onClick={() => setEditing({ ...p })}>{p.name}</button></td>
-                  <td>{depts(p.departments).length ? depts(p.departments).join(", ") : <span className="sub">Everyone</span>}</td>
-                  <td className="nowrap">{R_SHORT[p.recipient_type] ?? p.recipient_type}<div className="sub">{T_SHORT[p.message_type] ?? p.message_type}</div></td>
+                  <td>
+                    <button className="link-button rule-name" onClick={() => setEditing({ ...p })}>{p.name}</button>
+                    {scheduleText(p) && <div className="sub">{scheduleText(p)} {scheduleState(p) === "upcoming" && <Badge tone="info">Not started</Badge>}{scheduleState(p) === "ended" && <Badge>Ended</Badge>}</div>}
+                  </td>
+                  <td>{(() => { const t = sendersText(p); return <>{t.main === "Everyone" ? <span className="sub">Everyone</span> : t.main}{t.except > 0 && <div className="sub">except {t.except}</div>}</>; })()}</td>
+                  <td className="nowrap">{R_SHORT[p.recipient_type] ?? p.recipient_type}<div className="sub">{depts(p.recipient_domains).length ? `To ${depts(p.recipient_domains).join(", ")}` : T_SHORT[p.message_type] ?? p.message_type}</div></td>
                   <td>
                     <Link to={`/signatures/${p.template_id}`}>{p.template_name ?? "Missing"}</Link>
-                    {t && !t.live_version && <div><Badge tone="bad">not live: skipped</Badge></div>}
+                    {t && !t.live_version && <div><Badge tone="bad">Not live: skipped</Badge></div>}
                   </td>
                   <td><Toggle ariaLabel={`Rule ${p.name} on`} label="" checked={p.enabled} disabled={!isAdmin} onChange={() => toggle(p)} /></td>
                   <td className="actions">
                     {isAdmin && <>
-                      <button className="ghost small" onClick={() => duplicate(p)}>Duplicate</button>
+                      <button className="ghost small" aria-label={`Duplicate ${p.name}`} onClick={() => duplicate(p)}>Duplicate</button>
                       <button className="ghost small" onClick={() => remove(p)} aria-label={`Delete ${p.name}`}>Delete</button>
                     </>}
                   </td>
@@ -172,13 +204,14 @@ function RuleList({ me }: { me: Employee }) {
             if (ok) setEditing(null);
           }} />
       )}
+      {confirmDialog}
     </>
   );
 }
 
 // ---------------------------------------------------------------- stepped editor
 
-const STEPS = ["Name", "Senders", "Recipients", "Email type", "Signature"] as const;
+const STEPS = ["Name and dates", "Senders", "Recipients", "Email type", "Signature"] as const;
 
 function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
   form: Form; templates: TemplateRow[]; people: Employee[]; readOnly: boolean; onClose: () => void; onSave: (f: Form) => void;
@@ -196,7 +229,14 @@ function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
     chosen.forEach((d) => counts.has(d) || counts.set(d, 0));
     return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [people, f.departments]); // eslint-disable-line react-hooks/exhaustive-deps
-  const matching = scoped ? people.filter((p) => chosen.some((d) => d.toLowerCase() === p.department.toLowerCase())).length : people.length;
+  const named = lower(f.people);
+  const excluded = lower(f.exclude_people);
+  const scopedAny = scoped || named.length > 0;
+  const matching = people.filter((p) => !excluded.includes(p.email.toLowerCase()) && (!scopedAny
+    || chosen.some((d) => d.toLowerCase() === p.department.toLowerCase()) || named.includes(p.email.toLowerCase()))).length;
+  const addTo = (k: "people" | "exclude_people", email: string) => set(k, [...depts(f[k]), email].filter((x, i, a) => a.indexOf(x) === i).join(", "));
+  const dropFrom = (k: "people" | "exclude_people", email: string) => set(k, depts(f[k]).filter((x) => x.toLowerCase() !== email.toLowerCase()).join(", "));
+  const [domainDraft, setDomainDraft] = useState("");
   const toggleDept = (d: string, on: boolean) => set("departments", (on ? [...chosen, d] : chosen.filter((x) => x !== d)).join(", "));
 
   useEffect(() => {
@@ -210,13 +250,14 @@ function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
   }, [step, templates, people]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const summary = [
-    f.name || "Untitled",
-    scoped ? `${chosen.join(", ")} (${matching} people)` : `Everyone (${people.length} people)`,
-    RECIPIENTS.find((r) => r[0] === f.recipient_type)?.[1],
+    [f.name || "Untitled", scheduleText(f)].filter(Boolean).join(" · "),
+    `${scopedAny ? sendersText(f).main : "Everyone"} (${matching} ${matching === 1 ? "person" : "people"})`,
+    [RECIPIENTS.find((r) => r[0] === f.recipient_type)?.[1], depts(f.recipient_domains).length ? `to ${depts(f.recipient_domains).join(", ")}` : ""].filter(Boolean).join(", "),
     TYPES.find((t) => t[0] === f.message_type)?.[1],
     templates.find((t) => t.id === f.template_id)?.name ?? "Not chosen",
   ];
-  const valid = f.name.trim() && f.template_id;
+  const badDates = !!(f.starts_at && f.ends_at && asUtc(f.ends_at) <= asUtc(f.starts_at));
+  const valid = f.name.trim() && f.template_id && !badDates;
 
   return (
     <Drawer title={f.id ? `Edit rule: ${form.name}` : "New rule"} onClose={onClose} width={820}
@@ -244,15 +285,22 @@ function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
               <label className="field">Rule name<input autoFocus value={f.name} placeholder="e.g. Sales to customers" onChange={(e) => set("name", e.target.value)} /></label>
               <div style={{ marginTop: 16 }}><Toggle label="Rule is on" checked={f.enabled} onChange={(v) => set("enabled", v)} /></div>
               <p className="hint">New rules are added at the bottom of the list. Change the order from the rules list.</p>
+              <h3 style={{ marginTop: 24 }}>Dates (optional)</h3>
+              <p className="hint" style={{ marginTop: 0 }}>Outside these dates the rule is skipped and the next rule applies. Leave empty to run all the time.</p>
+              <div className="two">
+                <label className="field">Starts<input type="datetime-local" value={toLocalInput(f.starts_at)} onChange={(e) => set("starts_at", fromLocalInput(e.target.value))} /></label>
+                <label className="field">Ends<input type="datetime-local" value={toLocalInput(f.ends_at)} onChange={(e) => set("ends_at", fromLocalInput(e.target.value))} /></label>
+              </div>
+              {badDates && <p className="note bad" role="alert">The end must be after the start.</p>}
             </>
           )}
           {step === 1 && (
             <>
               <h3>Who sends the email</h3>
-              <label className="radio-card"><input type="radio" name="senders" checked={!scoped} onChange={() => set("departments", "")} />
+              <label className="radio-card"><input type="radio" name="senders" checked={!scopedAny} onChange={() => setF({ ...f, departments: "", people: "" })} />
                 <span><strong>Everyone in the organisation</strong><small>{people.length} people</small></span></label>
-              <label className="radio-card"><input type="radio" name="senders" checked={scoped} onChange={() => set("departments", allDepts[0]?.[0] ?? "")} />
-                <span><strong>People in these departments</strong><small>From your directory's department field</small></span></label>
+              <label className="radio-card"><input type="radio" name="senders" checked={scopedAny} onChange={() => !scopedAny && set("departments", allDepts[0]?.[0] ?? "")} />
+                <span><strong>Only some people</strong><small>Pick departments, named people, or both</small></span></label>
               {scoped && (
                 <div className="dept-list">
                   {allDepts.map(([d, n]) => (
@@ -262,9 +310,14 @@ function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
                     <input value={extra} placeholder="Another department" onChange={(e) => setExtra(e.target.value)} aria-label="Add department" />
                     <button className="secondary small" disabled={!extra.trim()} onClick={() => { toggleDept(extra.trim(), true); setExtra(""); }}>Add</button>
                   </div>
-                  <p className="hint">Applies to {matching} {matching === 1 ? "person" : "people"}. Delegated email follows the mailbox owner's department.</p>
                 </div>
               )}
+              {scopedAny && (
+                <PeoplePicker label="Also these people" people={people} chosen={named} onAdd={(e) => addTo("people", e)} onRemove={(e) => dropFrom("people", e)} />
+              )}
+              <PeoplePicker label="Except these people" hint="They never get this rule, even if their department matches." people={people} chosen={excluded}
+                onAdd={(e) => addTo("exclude_people", e)} onRemove={(e) => dropFrom("exclude_people", e)} />
+              <p className="hint">Applies to {matching} {matching === 1 ? "person" : "people"}. Delegated email follows the mailbox owner.</p>
             </>
           )}
           {step === 2 && (
@@ -274,6 +327,23 @@ function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
                 <label key={v} className="radio-card"><input type="radio" name="rcpt" checked={f.recipient_type === v} onChange={() => set("recipient_type", v)} />
                   <span><strong>{label}</strong><small>{hint}</small></span></label>
               ))}
+              <h3 style={{ marginTop: 24 }}>Only to these domains (optional)</h3>
+              <p className="hint" style={{ marginTop: 0 }}>For a key customer or partner. At least one recipient must be in a listed domain; subdomains count.</p>
+              <div className="chips">
+                {depts(f.recipient_domains).map((d) => (
+                  <span key={d} className="chip">{d}<button type="button" className="chip-x" aria-label={`Remove ${d}`} onClick={() => set("recipient_domains", depts(f.recipient_domains).filter((x) => x !== d).join(", "))}>×</button></span>
+                ))}
+              </div>
+              <form className="row tight" style={{ marginTop: 8 }} onSubmit={(e) => {
+                e.preventDefault();
+                const d = domainDraft.trim().toLowerCase().replace(/^@/, "");
+                if (!d.includes(".") || d.includes(" ") || d.includes("@")) return;
+                set("recipient_domains", [...depts(f.recipient_domains), d].filter((x, i, a) => a.indexOf(x) === i).join(", "));
+                setDomainDraft("");
+              }}>
+                <input value={domainDraft} placeholder="fabrikam.com" aria-label="Recipient domain" onChange={(e) => setDomainDraft(e.target.value)} />
+                <button type="submit" className="secondary small" disabled={!domainDraft.trim().includes(".")}>Add domain</button>
+              </form>
               <p className="hint">External email also gets a verification code where the signature has one.</p>
             </>
           )}
@@ -306,6 +376,41 @@ function RuleEditor({ form, templates, people, readOnly, onClose, onSave }: {
   );
 }
 
+function PeoplePicker({ label, hint, people, chosen, onAdd, onRemove }: {
+  label: string; hint?: string; people: Employee[]; chosen: string[]; onAdd: (email: string) => void; onRemove: (email: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const hits = query.length < 1 ? [] : people.filter((p) => !chosen.includes(p.email.toLowerCase())
+    && `${p.name} ${p.email} ${p.department}`.toLowerCase().includes(query)).slice(0, 6);
+  const byEmail = (e: string) => people.find((p) => p.email.toLowerCase() === e);
+  return (
+    <div className="people-picker">
+      <h4>{label}</h4>
+      {hint && <p className="hint" style={{ marginTop: 0 }}>{hint}</p>}
+      {chosen.length > 0 && (
+        <div className="chips">
+          {chosen.map((e) => (
+            <span key={e} className="chip" title={e}>{byEmail(e)?.name ?? e}
+              <button type="button" className="chip-x" aria-label={`Remove ${byEmail(e)?.name ?? e}`} onClick={() => onRemove(e)}>×</button></span>
+          ))}
+        </div>
+      )}
+      <div className="combo">
+        <input value={q} placeholder="Search by name, email or department" aria-label={label} onChange={(e) => setQ(e.target.value)} />
+        {hits.length > 0 && (
+          <ul className="combo-list" role="listbox" aria-label={`${label}: matches`}>
+            {hits.map((p) => (
+              <li key={p.email}><button type="button" onClick={() => { onAdd(p.email.toLowerCase()); setQ(""); }}>
+                <strong>{p.name}</strong><span className="sub">{p.email} · {p.department || "No department"}</span></button></li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- tester (Exclaimer-style)
 
 interface TestResult {
@@ -322,19 +427,21 @@ function Tester({ me }: { me: Employee }) {
   const [recipients, setRecipients] = useState("buyer@fabrikam.com");
   const [type, setType] = useState("new");
   const [result, setResult] = useState<TestResult | null>(null);
-  const [ran, setRan] = useState<{ dept: string } | null>(null);
+  const [ran, setRan] = useState<{ dept: string; email: string; recipients: string[]; at: Date } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const run = async () => {
     setBusy(true); setError(null);
     try {
+      const list = recipients.split(/[,;\s]+/).filter(Boolean);
       const r = await api<TestResult>("/policies/test", {
-        body: { sender_email: sender, recipients: recipients.split(/[,;\s]+/).filter(Boolean), message_type: type, from_email: from || null },
+        body: { sender_email: sender, recipients: list, message_type: type, from_email: from || null },
       });
       const s = people.data?.find((p) => p.email === sender);
       const owner = r.on_behalf_of ? people.data?.find((p) => p.email === from) : null;
-      setRan({ dept: (owner ?? s)?.department ?? "" });
+      const who = owner ?? s;
+      setRan({ dept: who?.department ?? "", email: (who?.email ?? sender).toLowerCase(), recipients: list, at: new Date() });
       setResult(r);
       policies.reload(); templates.reload();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -345,12 +452,20 @@ function Tester({ me }: { me: Employee }) {
     let matched = false;
     const mtype = type === "forward" ? "reply" : type;
     return (policies.data ?? []).map((p) => {
-      const ds = depts(p.departments).map((d) => d.toLowerCase());
+      const ds = lower(p.departments);
+      const named = lower(p.people);
+      const excluded = lower(p.exclude_people);
+      const wanted = lower(p.recipient_domains);
       const t = templates.data?.find((x) => x.id === p.template_id);
+      const senderOk = !excluded.includes(ran.email) && ((!ds.length && !named.length) || ds.includes(ran.dept.toLowerCase()) || named.includes(ran.email));
+      const sched = scheduleState(p, ran.at);
+      const domainsOk = !wanted.length || ran.recipients.some((r) => inDomains(domainOf(r), wanted));
       const checks: [string, boolean, string][] = [
         ["Rule is on", p.enabled, p.enabled ? "On" : "Off"],
-        ["Senders", !ds.length || ds.includes(ran.dept.toLowerCase()), ds.length ? `${p.departments} · sender is in ${ran.dept || "no department"}` : "Everyone"],
+        ...(scheduleText(p) ? [["Dates", !sched, `${scheduleText(p)}${sched === "upcoming" ? " · not started" : sched === "ended" ? " · ended" : ""}`] as [string, boolean, string]] : []),
+        ["Senders", senderOk, excluded.includes(ran.email) ? "Sender is in the exceptions" : (ds.length || named.length) ? `${sendersText(p).main} · sender is in ${ran.dept || "no department"}` : "Everyone"],
         ["Recipients", p.recipient_type === "any" || p.recipient_type === result.recipient_type, `${R_SHORT[p.recipient_type]} · email is ${result.recipient_type}`],
+        ...(wanted.length ? [["Recipient domains", domainsOk, `${wanted.join(", ")}${domainsOk ? "" : " · no recipient there"}`] as [string, boolean, string]] : []),
         ["Email type", p.message_type === "any" || p.message_type === mtype, `${T_SHORT[p.message_type]} · this is a ${mtype === "new" ? "new email" : "reply"}`],
         ["Signature live", !!t?.live_version, t?.live_version ? `${t.name} v${t.live_version}` : "No live version"],
       ];

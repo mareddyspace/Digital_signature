@@ -1,5 +1,6 @@
 """Choose and build the signature for one email being written."""
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -62,20 +63,45 @@ def active_delegation(db: Session, delegate: str, owner: str) -> Delegation | No
     )
 
 
+def _list(value: str | None) -> set[str]:
+    return {x.strip().lower() for x in (value or "").split(",") if x.strip()}
+
+
+def _domain_matches(recipient_domain: str, wanted: set[str]) -> bool:
+    return any(recipient_domain == w or recipient_domain.endswith("." + w) for w in wanted)
+
+
+def policy_matches_sender(p: SignaturePolicy, department: str, email: str) -> bool:
+    """Senders: no departments and no people means everyone; otherwise either list can match."""
+    if email.lower() in _list(p.exclude_people):
+        return False
+    depts, people = _list(p.departments), _list(p.people)
+    if not depts and not people:
+        return True
+    return department.lower() in depts or email.lower() in people
+
+
 def match_policy(
     db: Session, department: str, rtype: str, message_type: str,
-    tampered: list[str] | None = None,
+    tampered: list[str] | None = None, sender_email: str = "", recipients: list[str] | None = None,
+    now: datetime | None = None,
 ) -> tuple[SignaturePolicy, TemplateVersion] | None:
     """First enabled policy that matches. Live versions whose integrity seal is broken are skipped
     (their names are appended to `tampered`) so an altered template never reaches anyone's email."""
+    now = now or utcnow()
+    domains = {domain(r) for r in (recipients or []) if r.strip()}
     policies = db.scalars(
         select(SignaturePolicy)
         .where(SignaturePolicy.enabled)
         .order_by(SignaturePolicy.priority, SignaturePolicy.id)
     )
     for p in policies:
-        depts = [d.strip().lower() for d in p.departments.split(",") if d.strip()]
-        if depts and department.lower() not in depts:
+        if not policy_matches_sender(p, department, sender_email):
+            continue
+        if (p.starts_at and now < p.starts_at) or (p.ends_at and now >= p.ends_at):
+            continue
+        wanted = _list(p.recipient_domains)
+        if wanted and not any(_domain_matches(d, wanted) for d in domains):
             continue
         if p.recipient_type not in ("any", rtype):
             continue
@@ -141,9 +167,10 @@ def build(
                 owner = None
 
     # Policies follow the department of the person the email is sent for.
-    department = (owner or sender).department if delegation else sender.department
+    governing = (owner or sender) if delegation else sender
+    department = governing.department
     tampered: list[str] = []
-    matched = match_policy(db, department, rtype, message_type, tampered)
+    matched = match_policy(db, department, rtype, message_type, tampered, governing.email, recipients)
     for name in tampered:
         warnings.append(f"Template \"{name}\" failed its integrity check and was not used.")
         if not dry_run:

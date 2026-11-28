@@ -47,7 +47,8 @@ export function msalConfiguration(cfg: Extract<AuthConfig, { mode: "entra" }>, o
       redirectUri: `${origin}/redirect.html`,
       postLogoutRedirectUri: `${origin}/`,
     },
-    cache: { cacheLocation: "sessionStorage" },
+    // localStorage: stay signed in across tabs and browser restarts (sign-out clears it).
+    cache: { cacheLocation: "localStorage" },
   };
 }
 
@@ -72,7 +73,22 @@ export function authMode(): AuthConfig["mode"] {
 }
 
 /** Runs once before the app renders: learns the mode and finishes any sign-in redirect. */
-export async function initAuth(fetchConfig: () => Promise<unknown> = () => fetch("/api/auth/config").then((r) => r.json())): Promise<AuthState> {
+async function loadConfig(): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch("/api/auth/config");
+  } catch {
+    throw new Error("Can't reach the SignGuard backend. Is it running on port 8000?");
+  }
+  if (!res.ok) {
+    throw new Error(res.status === 404
+      ? "The backend running on port 8000 is an older version. Stop it (Ctrl + C) and start it again."
+      : `The backend answered ${res.status} for its sign-in settings.`);
+  }
+  return res.json();
+}
+
+export async function initAuth(fetchConfig: () => Promise<unknown> = loadConfig): Promise<AuthState> {
   config = parseAuthConfig(await fetchConfig());
   if (config.mode === "dev") return { mode: "dev" };
 

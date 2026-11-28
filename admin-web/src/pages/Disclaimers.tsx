@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, type Disclaimer, type Employee } from "../api";
-import { Badge, Drawer, ErrorNote, Page, Toggle, useAction, useLoad } from "../ui";
+import { Badge, Drawer, ErrorNote, Page, Toggle, useAction, useConfirm, useLoad } from "../ui";
 
 type Form = Omit<Disclaimer, "id"> & { id?: number };
 const EMPTY: Form = { name: "", text: "", departments: "", recipient_type: "external", priority: 100, enabled: true };
@@ -14,6 +14,7 @@ const LIBRARY: { name: string; text: string; departments?: string }[] = [
 ];
 
 export default function Disclaimers({ me }: { me: Employee }) {
+  const [ask, confirmDialog] = useConfirm();
   const list = useLoad(() => api<Disclaimer[]>("/disclaimers"));
   const [form, setForm] = useState<Form | null>(null);
   const { run, busy, Notes } = useAction(() => list.reload());
@@ -68,19 +69,20 @@ export default function Disclaimers({ me }: { me: Employee }) {
           {list.data?.map((d) => (
             <tr key={d.id}>
               <td><strong>{d.name}</strong><div className="sub clamp">{d.text}</div></td>
-              <td>{d.departments || "All departments"}<div className="sub">{d.recipient_type === "any" ? "Everyone" : `${d.recipient_type} recipients`}</div></td>
+              <td>{d.departments || "All departments"}<div className="sub">{d.recipient_type === "any" ? "Everyone" : `${d.recipient_type === "external" ? "External" : "Internal"} recipients`}</div></td>
               <td>{d.priority}</td>
-              <td>{d.enabled ? <Badge tone="good">on</Badge> : <Badge>off</Badge>}</td>
+              <td>{d.enabled ? <Badge tone="good">On</Badge> : <Badge>Off</Badge>}</td>
               <td className="actions">
                 {isAdmin && <>
                   <button className="link-button" onClick={() => setForm({ ...d })}>Edit</button>
-                  <button className="link-button danger" onClick={() => window.confirm(`Delete "${d.name}"?`) && run(() => api(`/disclaimers/${d.id}`, { method: "DELETE" }), "Disclaimer deleted.")}>Delete</button>
+                  <button className="link-button danger" onClick={async () => (await ask({ title: `Delete "${d.name}"?`, detail: "It stops being added to email straight away.", confirm: "Delete disclaimer", danger: true })) && run(() => api(`/disclaimers/${d.id}`, { method: "DELETE" }), "Disclaimer deleted.")}>Delete</button>
                 </>}
               </td>
             </tr>
           ))}
         </tbody>
       </table></div>
+      {confirmDialog}
     </Page>
   );
 }
