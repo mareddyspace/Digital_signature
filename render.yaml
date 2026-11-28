@@ -1,30 +1,29 @@
 # Render Blueprint: SignGuard for a Microsoft 365 test tenant (free plans).
 # Render: New > Blueprint > pick this repository. Render asks for every value marked sync: false.
 #
+# Database: Render allows one free PostgreSQL per workspace, and this workspace's is shared with another
+# project. SignGuard uses its own database ("signguard") inside that instance, so the projects' tables
+# never mix. DATABASE_URL is that instance's Internal Database URL with the last part changed to /signguard.
+#
 # Free plan limits (Render docs, Nov 2026): the web service sleeps after 15 minutes without traffic and
-# takes up to a minute to wake; the free PostgreSQL database expires 30 days after creation and is
-# deleted 14 days later unless upgraded to a paid instance type. Upgrade both before real users rely on it.
+# takes up to a minute to wake; a free PostgreSQL instance expires 30 days after it was created (the shared
+# one on 9 Dec 2026) and is deleted 14 days later unless upgraded. Upgrade both before real users rely on it.
 #
 # One service serves the API, the admin web (/) and the Outlook add-in (/addin/).
 # The database schema is created by `python -m app.migrate`, which the container runs before the server.
-
-databases:
-  - name: signguard-db
-    plan: free
-    databaseName: signguard
-    user: signguard
 
 services:
   - type: web
     name: signguard
     runtime: docker
     plan: free
+    # Same region as the shared database: Render's internal database address only works within a region.
+    region: oregon
     healthCheckPath: /api/health
     envVars:
+      # postgresql://USER:PASSWORD@HOST/signguard (Internal Database URL, database name "signguard").
       - key: DATABASE_URL
-        fromDatabase:
-          name: signguard-db
-          property: connectionString
+        sync: false
       # Microsoft sign-in only. Never set AUTH_MODE=dev on a public address.
       - key: AUTH_MODE
         value: entra

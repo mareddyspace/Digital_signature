@@ -181,7 +181,8 @@ Switching away from two admins asks for confirmation on the page. Every change i
 **Why.** Outlook can only load the add-in from a public HTTPS address, so it can't come from your PC. Render's free web service also wipes its disk on every restart or sleep, so SQLite would lose all data there. The database moves to Render PostgreSQL.
 
 **How it works.**
-- `render.yaml` (Blueprint) creates a free PostgreSQL database `signguard-db` and a free Docker web service `signguard`. The values marked `sync: false` are entered in the Render dashboard: Entra IDs, client secret, bootstrap admins, internal domains. `CODE_SECRET` is generated once by Render.
+- `render.yaml` (Blueprint) creates a free Docker web service `signguard`. The values marked `sync: false` are entered in the Render dashboard: database address, Entra IDs, client secret, bootstrap admins, internal domains. `CODE_SECRET` is generated once by Render.
+- **Database (changed 28 Nov):** Render allows one free PostgreSQL per workspace, and this workspace's (`nexusai-db`, created for NexusAI) already exists and holds NexusAI's data. On your decision, nothing was deleted. SignGuard has its own database, `signguard`, inside that instance, so the two projects' tables never mix. `DATABASE_URL` is the instance's Internal Database URL ending `/signguard`. **This instance expires on 9 Dec 2026** and is deleted 14 days later unless upgraded, which would take both projects' data with it.
 - The container runs `python -m app.migrate` and then the server. The public address comes from Render's `RENDER_EXTERNAL_URL`.
 - One service serves everything:
   - the API (`/api`);
