@@ -5,6 +5,15 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def _env(name: str, default: str | None = None) -> str | None:
+    """An environment variable without surrounding spaces or line breaks (pasted values often carry them)."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value if value else default
 REPO_DIR = BACKEND_DIR.parent
 DEV_CODE_SECRET = "dev-only-secret-change-me"
 
@@ -24,65 +33,65 @@ def normalize_database_url(url: str) -> str:
 @dataclass(frozen=True)
 class Settings:
     database_url: str = normalize_database_url(
-        os.getenv("DATABASE_URL", f"sqlite:///{BACKEND_DIR.as_posix()}/signguard.db")
+        _env("DATABASE_URL", f"sqlite:///{BACKEND_DIR.as_posix()}/signguard.db")
     )
     # Where people reach SignGuard, e.g. https://signguard.onrender.com (Render sets RENDER_EXTERNAL_URL).
-    public_url: str = (os.getenv("PUBLIC_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").rstrip("/")
+    public_url: str = (_env("PUBLIC_URL") or _env("RENDER_EXTERNAL_URL") or "").rstrip("/")
     # "dev": callers identify themselves with the X-Dev-User header (local only).
     # "entra": callers must send a valid Entra ID access token.
-    auth_mode: str = os.getenv("AUTH_MODE", "dev")
+    auth_mode: str = _env("AUTH_MODE", "dev")
     # Escape hatch for a private test deployment; never set this for real users.
-    allow_dev_auth_online: bool = os.getenv("ALLOW_DEV_AUTH_ONLINE", "").lower() == "true"
+    allow_dev_auth_online: bool = _env("ALLOW_DEV_AUTH_ONLINE", "").lower() == "true"
     # Public read-only demo: every request that would change data is refused server-side,
     # so dev sign-in (pick any sample account) is safe on a public URL. Sample directory only.
-    demo_read_only: bool = os.getenv("DEMO_READ_ONLY", "").lower() == "true"
+    demo_read_only: bool = _env("DEMO_READ_ONLY", "").lower() == "true"
     # "sample": employees come from sample_data/employees.json.
     # "graph": employees come from Microsoft Graph (needs the Entra app settings below).
-    directory_source: str = os.getenv("DIRECTORY_SOURCE", "sample")
-    entra_tenant_id: str = os.getenv("ENTRA_TENANT_ID", "")
-    entra_api_client_id: str = os.getenv("ENTRA_API_CLIENT_ID", "")
-    entra_api_client_secret: str = os.getenv("ENTRA_API_CLIENT_SECRET", "")
+    directory_source: str = _env("DIRECTORY_SOURCE", "sample")
+    entra_tenant_id: str = _env("ENTRA_TENANT_ID", "")
+    entra_api_client_id: str = _env("ENTRA_API_CLIENT_ID", "")
+    entra_api_client_secret: str = _env("ENTRA_API_CLIENT_SECRET", "")
     # The app registration's Application ID URI. Default: api://<public host>/<client id>,
     # the form Outlook add-in single sign-on requires.
-    entra_api_audience_setting: str = os.getenv("ENTRA_API_AUDIENCE", "")
-    entra_scope_name: str = os.getenv("ENTRA_SCOPE_NAME", "access_as_user")
+    entra_api_audience_setting: str = _env("ENTRA_API_AUDIENCE", "")
+    entra_scope_name: str = _env("ENTRA_SCOPE_NAME", "access_as_user")
     # The admin web app's own app registration (a single-page application, no secret). Public value.
-    entra_spa_client_id: str = os.getenv("ENTRA_SPA_CLIENT_ID", "")
+    entra_spa_client_id: str = _env("ENTRA_SPA_CLIENT_ID", "")
     # Off by default: Microsoft says never to authorize by email or preferred_username. Turn on only
     # to link SignGuard records that have no Entra object ID yet (sample or older records) to the
     # Microsoft account signing in with the same address in your own tenant, once each.
-    entra_link_by_email: bool = os.getenv("ENTRA_LINK_BY_EMAIL", "").lower() == "true"
+    entra_link_by_email: bool = _env("ENTRA_LINK_BY_EMAIL", "").lower() == "true"
     # Email domains that count as "internal" for signature policies.
     internal_domains: list[str] = field(
-        default_factory=lambda: _list(os.getenv("INTERNAL_DOMAINS", "contoso.com"))
+        default_factory=lambda: _list(_env("INTERNAL_DOMAINS", "contoso.com"))
     )
-    company_name: str = os.getenv("COMPANY_NAME", "Contoso")
-    verify_url_setting: str = os.getenv("VERIFY_URL", "")
+    company_name: str = _env("COMPANY_NAME", "Contoso")
+    verify_url_setting: str = _env("VERIFY_URL", "")
     # Secret used to hash recipients and subjects for verification codes.
-    code_secret: str = os.getenv("CODE_SECRET", DEV_CODE_SECRET)
+    code_secret: str = _env("CODE_SECRET", DEV_CODE_SECRET)
     cors_origins: list[str] = field(
         default_factory=lambda: _list(
-            os.getenv("CORS_ORIGINS", "http://localhost:5173,https://localhost:3000")
+            _env("CORS_ORIGINS", "http://localhost:5173,https://localhost:3000")
         )
     )
-    stale_grant_days: int = int(os.getenv("STALE_GRANT_DAYS", "90"))
-    directory_sync_hours: int = int(os.getenv("DIRECTORY_SYNC_HOURS", "24"))
+    stale_grant_days: int = int(_env("STALE_GRANT_DAYS", "90"))
+    directory_sync_hours: int = int(_env("DIRECTORY_SYNC_HOURS", "24"))
     # Users made admin on directory sync (needed the first time you sync from Microsoft Graph).
     bootstrap_admins: list[str] = field(
-        default_factory=lambda: _list(os.getenv("BOOTSTRAP_ADMINS", ""))
+        default_factory=lambda: _list(_env("BOOTSTRAP_ADMINS", ""))
     )
     # Google Workspace: a service account with domain-wide delegation (see README).
-    google_service_account_file: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "")
+    google_service_account_file: str = _env("GOOGLE_SERVICE_ACCOUNT_FILE", "")
     # A Workspace admin the service account acts as when reading the directory.
-    google_admin_email: str = os.getenv("GOOGLE_ADMIN_EMAIL", "")
-    google_customer_id: str = os.getenv("GOOGLE_CUSTOMER_ID", "my_customer")
+    google_admin_email: str = _env("GOOGLE_ADMIN_EMAIL", "")
+    google_customer_id: str = _env("GOOGLE_CUSTOMER_ID", "my_customer")
     # Optional: AI signature creation uses Claude when a key is set; otherwise the built-in designer rules.
-    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
-    ai_model: str = os.getenv("AI_MODEL", "claude-sonnet-5-5")
-    admin_static_dir: Path = Path(os.getenv("ADMIN_STATIC_DIR", str(BACKEND_DIR / "static" / "admin")))
+    anthropic_api_key: str = _env("ANTHROPIC_API_KEY", "")
+    ai_model: str = _env("AI_MODEL", "claude-sonnet-5-5")
+    admin_static_dir: Path = Path(_env("ADMIN_STATIC_DIR", str(BACKEND_DIR / "static" / "admin")))
     # MSAL for the Outlook add-in (served inside /addin/launchevent.js, see routers/outlook_files.py).
-    msal_bundle: Path = Path(os.getenv("MSAL_BUNDLE", str(REPO_DIR / "admin-web" / "node_modules" / "@azure" / "msal-browser" / "lib" / "msal-browser.min.js")))
-    addin_dir: Path = Path(os.getenv("ADDIN_DIR", str(REPO_DIR / "outlook-addin")))
+    msal_bundle: Path = Path(_env("MSAL_BUNDLE", str(REPO_DIR / "admin-web" / "node_modules" / "@azure" / "msal-browser" / "lib" / "msal-browser.min.js")))
+    addin_dir: Path = Path(_env("ADDIN_DIR", str(REPO_DIR / "outlook-addin")))
 
     @property
     def is_local(self) -> bool:

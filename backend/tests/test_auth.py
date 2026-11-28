@@ -195,3 +195,14 @@ def test_entra_mode_requires_its_settings():
     s = dataclasses.replace(auth.settings, auth_mode="entra", entra_tenant_id="", entra_spa_client_id="")
     found = " ".join(problems(s))
     assert "ENTRA_TENANT_ID" in found and "ENTRA_SPA_CLIENT_ID" in found
+
+
+def test_settings_ignore_spaces_and_line_breaks_around_pasted_values(monkeypatch):
+    from app.config import _env
+    monkeypatch.setenv("ENTRA_TENANT_ID", "  c62ac658-5fab-40fd-8221-e11077ac376d\n")
+    monkeypatch.setenv("ENTRA_API_CLIENT_SECRET", "secret-value\r\n")
+    monkeypatch.setenv("ENTRA_SPA_CLIENT_ID", "   ")
+    assert _env("ENTRA_TENANT_ID", "") == "c62ac658-5fab-40fd-8221-e11077ac376d"
+    assert _env("ENTRA_API_CLIENT_SECRET", "") == "secret-value"
+    assert _env("ENTRA_SPA_CLIENT_ID", "") == ""  # blank counts as not set
+    assert _env("NOT_SET_AT_ALL", "fallback") == "fallback"
