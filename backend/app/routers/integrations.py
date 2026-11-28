@@ -30,7 +30,8 @@ def integrations(db: Session = Depends(get_db), _: Employee = Depends(require_ro
     now = utcnow()
     employees = db.scalar(select(func.count(Employee.id)).where(Employee.active)) or 0
     active_senders = db.scalar(
-        select(func.count(func.distinct(SignatureEvent.employee_email))).where(SignatureEvent.created_at >= now - timedelta(days=7))
+        select(func.count(func.distinct(SignatureEvent.employee_email))).where(
+            SignatureEvent.created_at >= now - timedelta(days=7), SignatureEvent.source == "outlook")
     ) or 0
     sync = _last(db, "directory.synced")
 

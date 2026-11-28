@@ -55,7 +55,9 @@ export default function Home({ me }: { me: Employee }) {
     { done: i.directory.source !== "sample", title: "Connect your directory", detail: i.directory.source === "sample" ? "Using sample people. Connect Microsoft Entra ID or Google Workspace." : `Synced from ${i.directory.source === "graph" ? "Microsoft Entra ID" : "Google Workspace"} · ${fmt(i.directory.last_sync)}`, to: "/settings/integrations" },
     { done: !!(brand.data?.logo_url && brand.data?.website), title: "Complete the brand kit", detail: brand.data?.logo_url ? "Logo and website set" : "Add your logo, website and social links", to: "/settings/brand" },
     { done: gaps === 0, title: "Give every department an external signature", detail: gaps ? `${gaps} department${gaps > 1 ? "s" : ""} have none` : "Every department is covered", to: "/rules?tab=coverage" },
-    { done: (i.microsoft_365.addin_coverage_pct ?? 0) >= 80, title: "Deploy the Outlook add-in", detail: `${i.microsoft_365.addin_active_senders_7d ?? 0} people used it in the last 7 days (${i.microsoft_365.addin_coverage_pct ?? 0}%)`, to: "/settings/integrations" },
+    { done: (i.microsoft_365.addin_coverage_pct ?? 0) >= 80, title: "Deploy the Outlook add-in", detail: (i.microsoft_365.addin_active_senders_7d ?? 0)
+        ? `${i.microsoft_365.addin_active_senders_7d} used it in real Outlook in the last 7 days (${i.microsoft_365.addin_coverage_pct ?? 0}%)`
+        : "Not used in real Outlook yet", to: "/settings/integrations" },
     { done: i.microsoft_365.auth_mode === "entra", title: "Turn on Entra ID sign-in", detail: i.microsoft_365.auth_mode === "entra" ? "On" : "Development sign-in is on: anyone can act as anyone", to: "/settings/integrations" },
   ] : [];
   const done = setup.filter((x) => x.done).length;

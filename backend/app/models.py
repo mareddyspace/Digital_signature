@@ -275,6 +275,10 @@ class SignatureEvent(Base):
     campaign_id: Mapped[int | None] = mapped_column(Integer)
     disclaimers: Mapped[int] = mapped_column(Integer, default=0)
     on_behalf: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Where the request came from: "outlook" (the add-in in a real mailbox) or "simulator" (the admin
+    # web's Outlook preview). Rows from before this column existed are "unknown". Usage figures count
+    # only "outlook", so a test in the simulator never looks like Outlook adoption.
+    source: Mapped[str] = mapped_column(String(20), default="outlook", server_default="unknown")
 
 
 class Deployment(Base):

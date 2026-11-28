@@ -483,7 +483,10 @@ def analytics(days: int = 30, db: Session = Depends(get_db), _: Employee = Depen
     days = max(1, min(days, 365))
     now = utcnow()
     since = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    events = db.scalars(select(SignatureEvent).where(SignatureEvent.created_at >= since)).all()
+    all_events = db.scalars(select(SignatureEvent).where(SignatureEvent.created_at >= since)).all()
+    # Only signatures served to real Outlook count; simulator previews and older untagged rows are reported apart.
+    events = [e for e in all_events if e.source == "outlook"]
+    not_outlook = len(all_events) - len(events)
     audits = db.scalars(select(AuditEvent).where(AuditEvent.created_at >= since, AuditEvent.action.startswith("verify."))).all()
 
     day_keys = [(since + timedelta(days=i)).date().isoformat() for i in range(days)]
@@ -517,6 +520,7 @@ def analytics(days: int = 30, db: Session = Depends(get_db), _: Employee = Depen
             "on_behalf": sum(1 for e in events if e.on_behalf),
             "with_disclaimer": sum(1 for e in events if e.disclaimers),
             "active_senders": len(senders),
+            "not_from_outlook": not_outlook,
             "employees": employees,
             "coverage_pct": round(100 * len(senders) / employees) if employees else 0,
             "banner_impressions": impressions,

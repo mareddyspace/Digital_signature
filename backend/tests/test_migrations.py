@@ -52,6 +52,7 @@ def test_existing_database_without_history_is_stamped_and_keeps_its_data():
             "'admin', '', 1, CURRENT_TIMESTAMP)"))
     assert "role_source" not in {c["name"] for c in inspect(engine).get_columns("employees")}
     assert "people" not in {c["name"] for c in inspect(engine).get_columns("signature_policies")}
+    assert "source" not in {c["name"] for c in inspect(engine).get_columns("signature_events")}
     assert migrate.upgrade(engine) == migrate.head_revision()
     assert {"people", "exclude_people", "recipient_domains", "starts_at", "ends_at"} <= {
         c["name"] for c in inspect(engine).get_columns("signature_policies")}

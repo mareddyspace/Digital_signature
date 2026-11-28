@@ -18,6 +18,8 @@ class SignatureRequest(BaseModel):
     message_type: Literal["new", "reply", "forward"] = "new"
     from_email: str | None = None
     previous_code: str | None = None
+    # "outlook" from the add-in, "simulator" from the admin web's preview page.
+    client: Literal["outlook", "simulator"] = "outlook"
 
 
 class SignatureResponse(BaseModel):
@@ -40,7 +42,7 @@ def get_signature(
     user: Employee = Depends(current_user),
 ):
     result = signature.build(
-        db, user, body.recipients, body.message_type, body.from_email, body.previous_code
+        db, user, body.recipients, body.message_type, body.from_email, body.previous_code, source=body.client
     )
     return SignatureResponse(**{k: getattr(result, k) for k in SignatureResponse.model_fields})
 

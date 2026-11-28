@@ -80,6 +80,8 @@ class Settings:
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     ai_model: str = os.getenv("AI_MODEL", "claude-sonnet-5-5")
     admin_static_dir: Path = Path(os.getenv("ADMIN_STATIC_DIR", str(BACKEND_DIR / "static" / "admin")))
+    # MSAL for the Outlook add-in (served inside /addin/launchevent.js, see routers/outlook_files.py).
+    msal_bundle: Path = Path(os.getenv("MSAL_BUNDLE", str(REPO_DIR / "admin-web" / "node_modules" / "@azure" / "msal-browser" / "lib" / "msal-browser.min.js")))
     addin_dir: Path = Path(os.getenv("ADDIN_DIR", str(REPO_DIR / "outlook-addin")))
 
     @property

@@ -11,7 +11,7 @@ from . import trust
 from .config import settings
 from .db import SessionLocal, engine
 from . import automation, migrate
-from .routers import addin, admin, integrations, platform, trust_routes, verify
+from .routers import addin, admin, integrations, outlook_files, platform, trust_routes, verify
 from .seed import seed, seed_platform
 
 log = logging.getLogger("signguard")
@@ -87,6 +87,7 @@ app.include_router(verify.router)
 app.include_router(platform.router)
 app.include_router(platform.public)
 app.include_router(integrations.router)
+app.include_router(outlook_files.router)
 
 
 @app.get("/api/health")

@@ -1,6 +1,6 @@
 """Brand kit, designer, AI, compliance, banners, disclaimers, integrity, automation,
 assignments, deployments and analytics."""
-from conftest import ADMIN, ARJUN, SARA, as_user
+from conftest import ADMIN, ARJUN, LENA, SARA, as_user
 
 from app import compliance, designer, integrity
 
@@ -253,3 +253,20 @@ def test_emoji_element_offers_only_sun_night_cloud():
     d = {**base, "blocks": [{"type": "emoji", "props": {"emoji": "<script>"}}]}
     out = designer.compile_design(designer.normalize(d))
     assert "&#9728;" in out and "<script>" not in out
+
+
+def test_simulator_previews_do_not_count_as_outlook_use(client):
+    """The admin web's Outlook simulator calls the same endpoint as the add-in, but must never look like adoption."""
+    before = client.get("/api/analytics", headers=ADMIN).json()["totals"]
+    before_integ = client.get("/api/integrations", headers=ADMIN).json()["microsoft_365"]["addin_active_senders_7d"]
+    r = client.post("/api/addin/signature", headers=LENA, json={"recipients": ["x@fabrikam.com"], "client": "simulator"})
+    assert r.status_code == 200 and r.json()["html"]
+    after = client.get("/api/analytics", headers=ADMIN).json()["totals"]
+    assert after["signatures"] == before["signatures"]
+    assert after["not_from_outlook"] == before.get("not_from_outlook", 0) + 1
+    assert client.get("/api/integrations", headers=ADMIN).json()["microsoft_365"]["addin_active_senders_7d"] == before_integ
+    # The add-in (no client field, as older add-in builds send) still counts.
+    client.post("/api/addin/signature", headers=LENA, json={"recipients": ["x@fabrikam.com"]})
+    assert client.get("/api/analytics", headers=ADMIN).json()["totals"]["signatures"] == before["signatures"] + 1
+    # Anything else is refused.
+    assert client.post("/api/addin/signature", headers=LENA, json={"client": "script"}).status_code == 422

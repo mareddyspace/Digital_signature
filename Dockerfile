@@ -13,7 +13,11 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ backend/
 COPY outlook-addin/ outlook-addin/
 COPY --from=web /web/dist backend/static/admin
+# MSAL for the Outlook add-in's sign-in (nested app authentication), served inside /addin/launchevent.js.
+COPY --from=web /web/node_modules/@azure/msal-browser/lib/msal-browser.min.js /app/msal/msal-browser.min.js
 ENV ADMIN_STATIC_DIR=/app/backend/static/admin \
+    ADDIN_DIR=/app/outlook-addin \
+    MSAL_BUNDLE=/app/msal/msal-browser.min.js \
     PYTHONUNBUFFERED=1
 WORKDIR /app/backend
 EXPOSE 8000

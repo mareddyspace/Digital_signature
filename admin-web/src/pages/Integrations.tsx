@@ -55,7 +55,7 @@ export default function Integrations({ me }: { me: Employee }) {
         <div><dt>Directory</dt><dd>{p.directory ? "Synced from here" : "Not the directory source"}</dd></div>
         <div><dt>Deployment</dt><dd>{MODE_TEXT[p.deploy_mode]}</dd></div>
         {key === "microsoft_365" && <>
-          <div><dt>Outlook add-in</dt><dd>{p.addin_active_senders_7d} people used it in 7 days ({p.addin_coverage_pct}%)</dd></div>
+          <div><dt>Outlook add-in</dt><dd>{p.addin_active_senders_7d ? `${p.addin_active_senders_7d} used it in real Outlook in 7 days (${p.addin_coverage_pct}%)` : "Not used in real Outlook yet"}</dd></div>
           <div><dt>Sign-in</dt><dd>{p.auth_mode === "entra" ? "Entra ID" : "Development mode"}</dd></div>
         </>}
         {key === "google_workspace" && p.admin_email && <div><dt>Admin account</dt><dd>{p.admin_email}</dd></div>}

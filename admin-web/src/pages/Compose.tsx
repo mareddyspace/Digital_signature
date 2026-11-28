@@ -28,6 +28,8 @@ export default function Compose({ me }: { me: Employee }) {
           from_email: from,
           message_type: isReply ? "reply" : "new",
           previous_code: codeRef.current,
+          // Tagged so previews here never count as real Outlook use in Analytics or Home.
+          client: "simulator",
         },
       })
         .then((s) => {

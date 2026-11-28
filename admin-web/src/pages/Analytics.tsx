@@ -36,9 +36,12 @@ export default function Analytics() {
       <ErrorNote error={error} />
       {data && t && (
         <>
+          {(t.not_from_outlook ?? 0) > 0 && (
+            <p className="note info">Counts below are real Outlook email only. {t.not_from_outlook} {t.not_from_outlook === 1 ? "signature" : "signatures"} from the Outlook simulator or from before 28 Nov 2026 are left out.</p>
+          )}
           <div className="stats">
             <StatTile label="Signatures served" value={t.signatures.toLocaleString()} note={`${t.external} external · ${t.internal} internal`} />
-            <StatTile label="Add-in coverage" value={`${t.coverage_pct}%`} note={`${t.active_senders} of ${t.employees} people sent email`} tone={t.coverage_pct >= 80 ? "good" : t.coverage_pct >= 40 ? undefined : "warn"} />
+            <StatTile label="Add-in coverage" value={`${t.coverage_pct}%`} note={`${t.active_senders} of ${t.employees} people, real Outlook only`} tone={t.coverage_pct >= 80 ? "good" : t.coverage_pct >= 40 ? undefined : "warn"} />
             <StatTile label="Banner click-through" value={`${t.banner_ctr}%`} note={`${t.banner_clicks} clicks from ${t.banner_impressions} views`} />
             <StatTile label="Verification checks" value={t.verifications_passed + t.verifications_failed} note={`${t.verifications_failed} failed`} tone={t.verifications_failed ? "bad" : undefined} />
           </div>

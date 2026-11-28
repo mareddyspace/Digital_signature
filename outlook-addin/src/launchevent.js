@@ -2,14 +2,13 @@
  * SignGuard event handlers. Outlook runs this file on its own (no task pane open):
  *  - in a browser runtime on Outlook on the web, new Outlook and Mac (via commands.html)
  *  - in a JavaScript-only runtime on classic Outlook for Windows (this file directly)
- * Classic Outlook needs a single plain script: no imports, no modules.
+ * Classic Outlook needs a single plain script: no imports, no modules. serve.js therefore
+ * serves /launchevent.js as one file: the MSAL browser library, then SIGNGUARD_ORIGIN, then this.
  */
-/* global Office */
+/* global Office, msal, SIGNGUARD_ORIGIN */
 
-// Same origin as this file: the dev server proxies /api to the SignGuard backend.
-var SIGNGUARD_API = "https://localhost:3000/api";
-// "dev" sends the user's address as X-Dev-User. Switch to "entra" once Entra sign-in is set up.
-var SIGNGUARD_AUTH_MODE = "dev";
+// The add-in host also proxies /api to the SignGuard backend, so the API is on the same origin.
+var SIGNGUARD_API = (typeof SIGNGUARD_ORIGIN !== "undefined" ? SIGNGUARD_ORIGIN : "https://localhost:3000") + "/api";
 
 function sgAsync(fn) {
   return new Promise(function (resolve, reject) {
@@ -20,26 +19,87 @@ function sgAsync(fn) {
   });
 }
 
-function sgHeaders() {
-  var headers = { "Content-Type": "application/json" };
-  if (SIGNGUARD_AUTH_MODE === "dev") {
-    headers["X-Dev-User"] = Office.context.mailbox.userProfile.emailAddress;
+// ---------------------------------------------------------------- sign-in
+
+var sgConfigPromise = null;
+var sgMsalPromise = null;
+
+/** {mode: "dev"} or {mode: "entra", tenant_id, client_id, scopes}, from the backend (public IDs only). */
+function sgConfig() {
+  if (!sgConfigPromise) {
+    sgConfigPromise = fetch(SIGNGUARD_API + "/auth/config").then(function (res) {
+      if (!res.ok) throw new Error("SignGuard sign-in settings unavailable (" + res.status + ")");
+      return res.json();
+    });
+    sgConfigPromise.catch(function () { sgConfigPromise = null; });
   }
-  // TODO(entra): get a token with MSAL nested app authentication and send
-  // headers.Authorization = "Bearer " + token;
-  return headers;
+  return sgConfigPromise;
 }
 
-function sgPost(path, body) {
-  return fetch(SIGNGUARD_API + path, {
-    method: "POST",
-    headers: sgHeaders(),
-    body: JSON.stringify(body),
+function sgNaaSupported() {
+  try {
+    return Office.context.requirements.isSetSupported("NestedAppAuth", "1.1");
+  } catch (e) {
+    return false;
+  }
+}
+
+/** MSAL with nested app authentication: Outlook signs the user in; no password or pop-up in events. */
+function sgMsal(cfg) {
+  if (!sgMsalPromise) {
+    if (typeof msal === "undefined" || !msal.createNestablePublicClientApplication) {
+      return Promise.reject(new Error("MSAL library not loaded"));
+    }
+    sgMsalPromise = msal.createNestablePublicClientApplication({
+      auth: { clientId: cfg.client_id, authority: "https://login.microsoftonline.com/" + cfg.tenant_id },
+      cache: { cacheLocation: "localStorage" },
+    });
+    sgMsalPromise.catch(function () { sgMsalPromise = null; });
+  }
+  return sgMsalPromise;
+}
+
+/**
+ * An access token for the SignGuard API. interactive=true may show a Microsoft sign-in pop-up,
+ * which is only allowed from the task pane, never from an event handler.
+ */
+function sgToken(interactive) {
+  return sgConfig().then(function (cfg) {
+    if (cfg.mode !== "entra") return null;
+    if (!sgNaaSupported()) throw new Error("This version of Outlook can't sign in to add-ins (nested app authentication). Update Outlook, or use Copy to Outlook in SignGuard.");
+    return sgMsal(cfg).then(function (app) {
+      var request = { scopes: cfg.scopes };
+      return app.acquireTokenSilent(request).catch(function (err) {
+        if (!interactive) throw err;
+        return app.acquireTokenPopup(request);
+      });
+    }).then(function (result) { return result.accessToken; });
+  });
+}
+
+function sgHeaders(interactive) {
+  return Promise.all([sgConfig(), sgToken(interactive)]).then(function (parts) {
+    var headers = { "Content-Type": "application/json" };
+    if (parts[0].mode === "dev") {
+      // Development backends only. A backend in Microsoft mode refuses this header.
+      headers["X-Dev-User"] = Office.context.mailbox.userProfile.emailAddress;
+    } else {
+      headers.Authorization = "Bearer " + parts[1];
+    }
+    return headers;
+  });
+}
+
+function sgPost(path, body, interactive) {
+  return sgHeaders(interactive).then(function (headers) {
+    return fetch(SIGNGUARD_API + path, { method: "POST", headers: headers, body: JSON.stringify(body) });
   }).then(function (res) {
     if (!res.ok) throw new Error("SignGuard API " + res.status);
     return res.json();
   });
 }
+
+// ---------------------------------------------------------------- reading the message
 
 function sgRecipients(item) {
   var fields = [item.to, item.cc, item.bcc].filter(Boolean);
@@ -63,6 +123,19 @@ function sgFromAddress(item) {
     .catch(function () { return null; });
 }
 
+/** "new", "reply" or "forward" (Mailbox 1.10). Older clients: a conversation means reply or forward. */
+function sgComposeType(item) {
+  if (item.getComposeTypeAsync) {
+    return sgAsync(function (cb) { item.getComposeTypeAsync(cb); })
+      .then(function (v) {
+        var t = v && v.composeType;
+        return t === "reply" ? "reply" : t === "forward" ? "forward" : "new";
+      })
+      .catch(function () { return item.conversationId ? "reply" : "new"; });
+  }
+  return Promise.resolve(item.conversationId ? "reply" : "new");
+}
+
 function sgSessionGet(item, key) {
   if (!item.sessionData) return Promise.resolve(null);
   return sgAsync(function (cb) { item.sessionData.getAsync(key, cb); }).catch(function () { return null; });
@@ -73,49 +146,57 @@ function sgSessionSet(item, key, value) {
   return sgAsync(function (cb) { item.sessionData.setAsync(key, value || "", cb); }).catch(function () {});
 }
 
+function sgNotify(item, text, isError) {
+  if (!item.notificationMessages) return Promise.resolve();
+  return sgAsync(function (cb) {
+    item.notificationMessages.replaceAsync("signguard", {
+      type: isError
+        ? Office.MailboxEnums.ItemNotificationMessageType.ErrorMessage
+        : Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
+      message: String(text).slice(0, 150),
+      icon: "Icon.16x16",
+      persistent: false,
+    }, cb);
+  }).catch(function () {});
+}
+
+/** Everything the API needs about the open message. */
+function sgRequest(item) {
+  return Promise.all([sgRecipients(item), sgFromAddress(item), sgSessionGet(item, "sgCode"), sgComposeType(item)])
+    .then(function (parts) {
+      return {
+        recipients: parts[0],
+        from_email: parts[1],
+        previous_code: parts[2] || null,
+        message_type: parts[3],
+        client: "outlook",
+      };
+    });
+}
+
+/** Put the HTML in Outlook's signature area. It replaces SignGuard's previous signature, never stacks. */
+function sgInsert(item, sig) {
+  var steps = [sgSessionSet(item, "sgCode", sig.verification_code)];
+  if (sig.warnings && sig.warnings.length) steps.push(sgNotify(item, sig.warnings[0], false));
+  if (sig.html) {
+    steps.push(sgAsync(function (cb) {
+      item.body.setSignatureAsync(sig.html, { coercionType: Office.CoercionType.Html }, cb);
+    }));
+  }
+  return Promise.all(steps);
+}
+
 /** Ask SignGuard for the right signature and put it in the email. */
 function sgApplySignature(event) {
   var item = Office.context.mailbox.item;
-  // In compose, a new message has no conversation yet; replies and forwards do.
-  var messageType = item.conversationId ? "reply" : "new";
-
-  Promise.all([sgRecipients(item), sgFromAddress(item), sgSessionGet(item, "sgCode")])
-    .then(function (parts) {
-      return sgPost("/addin/signature", {
-        recipients: parts[0],
-        from_email: parts[1],
-        message_type: messageType,
-        previous_code: parts[2] || null,
-      });
-    })
-    .then(function (sig) {
-      var steps = [sgSessionSet(item, "sgCode", sig.verification_code)];
-      if (sig.warnings && sig.warnings.length) {
-        steps.push(
-          sgAsync(function (cb) {
-            item.notificationMessages.replaceAsync("signguard", {
-              type: Office.MailboxEnums.ItemNotificationMessageType.InformationalMessage,
-              message: sig.warnings[0].slice(0, 150),
-              icon: "Icon.16x16",
-              persistent: false,
-            }, cb);
-          }).catch(function () {})
-        );
-      }
-      if (!sig.html) return Promise.all(steps);
-      steps.push(
-        sgAsync(function (cb) {
-          item.body.setSignatureAsync(sig.html, { coercionType: Office.CoercionType.Html }, cb);
-        })
-      );
-      return Promise.all(steps);
-    })
+  sgRequest(item)
+    .then(function (body) { return sgPost("/addin/signature", body, false); })
+    .then(function (sig) { return sgInsert(item, sig); })
     .catch(function (err) {
       console.error("SignGuard: could not set the signature", err);
+      return sgNotify(item, "SignGuard couldn't add your signature. Open SignGuard on the ribbon to sign in or see why.", true);
     })
-    .then(function () {
-      event.completed();
-    });
+    .then(function () { event.completed(); });
 }
 
 function onNewMessageComposeHandler(event) {
@@ -142,7 +223,7 @@ function onMessageSendHandler(event) {
   Promise.all([sgSessionGet(item, "sgCode"), sgAsync(function (cb) { item.subject.getAsync(cb); }).catch(function () { return ""; })])
     .then(function (parts) {
       if (!parts[0]) return null;
-      return sgPost("/addin/sent", { verification_code: parts[0], subject: parts[1] || "" });
+      return sgPost("/addin/sent", { verification_code: parts[0], subject: parts[1] || "" }, false);
     })
     .catch(function (err) { console.error("SignGuard: could not record send", err); })
     .then(function () { event.completed({ allowEvent: true }); });

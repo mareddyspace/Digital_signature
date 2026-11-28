@@ -1,4 +1,4 @@
-/* global Office, sgPost, sgRecipients, sgFromAddress, sgSessionGet, sgSessionSet, sgAsync */
+/* global Office, sgPost, sgRequest, sgInsert */
 
 function show(id, text) {
   document.getElementById(id).textContent = text || "–";
@@ -7,15 +7,9 @@ function show(id, text) {
 function refresh() {
   var item = Office.context.mailbox.item;
   show("status", "Checking…");
-  Promise.all([sgRecipients(item), sgFromAddress(item), sgSessionGet(item, "sgCode")])
-    .then(function (parts) {
-      return sgPost("/addin/signature", {
-        recipients: parts[0],
-        from_email: parts[1],
-        message_type: item.conversationId ? "reply" : "new",
-        previous_code: parts[2] || null,
-      });
-    })
+  sgRequest(item)
+    // The pane may show a Microsoft sign-in pop-up if Outlook can't sign in silently.
+    .then(function (body) { return sgPost("/addin/signature", body, true); })
     .then(function (sig) {
       show("template", sig.template_name || "No signature");
       show("reason", sig.reason);
@@ -35,16 +29,10 @@ function refresh() {
       // Sandboxed so template HTML can never run script inside the add-in.
       document.getElementById("preview").srcdoc = sig.html || "";
       show("status", "");
-      var steps = [sgSessionSet(item, "sgCode", sig.verification_code)];
-      if (sig.html) {
-        steps.push(sgAsync(function (cb) {
-          item.body.setSignatureAsync(sig.html, { coercionType: Office.CoercionType.Html }, cb);
-        }));
-      }
-      return Promise.all(steps);
+      return sgInsert(item, sig);
     })
     .catch(function (err) {
-      show("status", "Could not reach SignGuard: " + (err && err.message ? err.message : err));
+      show("status", "Could not get your signature from SignGuard: " + (err && err.message ? err.message : err));
     });
 }
 

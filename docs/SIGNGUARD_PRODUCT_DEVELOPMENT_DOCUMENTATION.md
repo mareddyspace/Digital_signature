@@ -74,6 +74,7 @@ Database changes are applied with an explicit step before the server starts: `py
 | High | Outlook add-in (event-based, Nested App Authentication) for one test user | Manager approval for a tenant change; HTTPS hosting |
 | High | Production hosting (Render + PostgreSQL) | Hosting decision; until then links in signatures point to localhost |
 | Medium | Per-person details editor (CodeTwo "User Details Editor"): admins fill in missing phone or title without changing Entra ID | Not built |
+| High | Shared mailbox signatures (`ReadWriteMailbox` + `SupportsSharedFolders`) | A tenant with a shared mailbox; decision on the wider permission |
 | Medium | Groups as rule senders (Entra ID groups), profile photos, delta sync | Needs `GroupMember.Read.All`; not requested yet |
 | Medium | Server-side signatures (transport rule / connector) for mobile and every client | Hosting + tenant change |
 | Low | Use `Skeleton`/`EmptyState` on every list page | — |
@@ -148,6 +149,61 @@ Switching away from two admins asks for confirmation on the page. Every change i
 | Texts said a second admin always approves | Now refer to the approval setting |
 | Rules page broke in Vite after an edit (missing quote mark) | Fixed in minutes. Since then every change is type-checked before it is copied |
 
+### 4.5 Outlook add-in: sign-in from Outlook, compose type, classic Outlook, honest usage figures (stage 1, 28 Nov 2026)
+
+**Why.** The add-in could never work against a backend in Microsoft mode. It sent the developer header `X-Dev-User`, which that mode refuses. It also only ran from `https://localhost:3000`, treated forwards as replies, lacked the file classic Outlook needs, and simulator previews were counted as real Outlook use.
+
+**What changed.**
+- **Sign-in:** nested app authentication (NAA). The add-in reads `/api/auth/config` (public IDs only) and creates MSAL with `createNestablePublicClientApplication`. It gets a token for `access_as_user` silently and sends `Authorization: Bearer`. The task pane may show a Microsoft sign-in pop-up; event handlers never do. If a token can't be had, Outlook shows "SignGuard couldn't add your signature…" and the email is unaffected. Backends in dev mode still get `X-Dev-User`.
+- **Compose type:** `getComposeTypeAsync` (Mailbox 1.10) gives new, reply or forward. Older clients fall back to the conversation ID.
+- **One script for classic Outlook:** `serve.js` serves `/launchevent.js` as MSAL + `SIGNGUARD_ORIGIN` + the handlers, because classic Outlook's event runtime can't load modules.
+- **Classic Outlook allow-list:** `serve.js` serves `/.well-known/microsoft-officeaddins-allowed.json`, listing that script.
+- **Any public address:** `SIGNGUARD_ADDIN_URL` sets the address. `/manifest.xml` is served with it in place of `https://localhost:3000`.
+- **Request source:** the add-in sends `client: "outlook"` and the Outlook simulator sends `client: "simulator"`. Each served signature records its `source`. Analytics, Home, Integrations and banner views count only `outlook`. Analytics says how many other signatures it left out.
+
+**Files.** `outlook-addin/src/launchevent.js`, `outlook-addin/src/taskpane.js`, `outlook-addin/serve.js`, `outlook-addin/package.json` (adds `@azure/msal-browser`; until `npm install` runs, `serve.js` uses the copy in `admin-web/node_modules`), `backend/app/models.py`, `backend/app/signature.py`, `backend/app/routers/addin.py`, `backend/app/routers/integrations.py`, `backend/app/routers/platform.py`, `admin-web/src/pages/Compose.tsx`, `Home.tsx`, `Integrations.tsx`, `Analytics.tsx`.
+
+**API.** `POST /api/addin/signature` accepts `client: "outlook" | "simulator"` (default `outlook`; any other value is refused with 422). `/api/analytics` totals gain `not_from_outlook`.
+
+**Database.** Migration `0004_signature_event_source` adds `signature_events.source`. Existing rows become `unknown`, because none of them came from a real mailbox. Earlier banner view counts can't be split and are kept as they were.
+
+**Not changed, on purpose.**
+- Shared mailboxes need the add-in permission `ReadWriteMailbox` (more than today's `ReadWriteItem`) plus `SupportsSharedFolders`. That widens what the add-in may touch, so it waits until there is a shared mailbox to test with and an explicit decision.
+- The legacy part of the manifest is untouched until `npm run validate` can be run on the PC.
+
+**Tests.**
+- Automated: `test_simulator_previews_do_not_count_as_outlook_use`; the migration downgrade test covers 0004. 79 passed in Claude's test copy, with Alembic 1.20.1.
+- `node --check` on the three add-in scripts: passed.
+- Not run yet: the add-in in real Outlook (stage 2).
+
+### 4.6 Hosting on Render with PostgreSQL (28 Nov 2026)
+
+**Why.** Outlook can only load the add-in from a public HTTPS address, so it can't come from your PC. Render's free web service also wipes its disk on every restart or sleep, so SQLite would lose all data there. The database moves to Render PostgreSQL.
+
+**How it works.**
+- `render.yaml` (Blueprint) creates a free PostgreSQL database `signguard-db` and a free Docker web service `signguard`. The values marked `sync: false` are entered in the Render dashboard: Entra IDs, client secret, bootstrap admins, internal domains. `CODE_SECRET` is generated once by Render.
+- The container runs `python -m app.migrate` and then the server. The public address comes from Render's `RENDER_EXTERNAL_URL`.
+- One service serves everything:
+  - the API (`/api`);
+  - the admin web (`/`);
+  - the Outlook add-in (`/addin/…`), including the combined `/addin/launchevent.js`;
+  - `/addin/manifest.xml`, rewritten for the Render address;
+  - `/.well-known/microsoft-officeaddins-allowed.json`.
+- Only named add-in files are served. Anything else under `/addin/` returns 404.
+- The earlier public read-only demo Blueprint was replaced. Both would share the same free hours, and the demo used developer sign-in.
+
+**Files.** `render.yaml`, `Dockerfile` (copies MSAL into the image; sets `ADDIN_DIR` and `MSAL_BUNDLE`), `backend/app/routers/outlook_files.py` (new), `backend/app/config.py` (`msal_bundle`), `backend/app/main.py`, `backend/tests/test_outlook_files.py` (new, 4 tests).
+
+**Free-plan limits (Render's documentation, checked 28 Nov 2026).**
+- The web service sleeps after 15 minutes without traffic and can take up to a minute to wake.
+- The free database has 1 GB and expires 30 days after creation. It is deleted 14 days later unless upgraded.
+- Upgrade both before real users depend on SignGuard.
+
+**Tests.**
+- All four migrations run on PostgreSQL 16 (`app.migrate`, then `--check` reports current).
+- The full backend suite (83 tests) passed against PostgreSQL 16 as well as SQLite. Postgres held 25 employees and signature events tagged `outlook` and `simulator` afterwards.
+- Not run yet: a Docker build, and a deployment on Render.
+
 ## 5. How to run the checks
 
 In VS Code terminals on the development PC:
@@ -174,7 +230,8 @@ npm run build
 | 26 Nov | Production build (`npm run build`) | Development PC | Succeeded |
 | 28 Nov | Backend pytest, including the new `test_rules_and_approvals.py` (5 tests) and the duplicate test | Claude's Linux test copy (Python 3.13, the PC's Alembic 1.20.1 and Mako); every source file checked identical to the PC by MD5 first | **78 passed** |
 | 28 Nov | TypeScript check (`tsc --noEmit`) | Development PC folder | Passed (after the quote-mark fix) |
-| 28 Nov | Backend pytest on the PC | Development PC | **Not run yet** |
+| 28 Nov | Backend pytest on PostgreSQL 16 (all 83 tests, incl. 4 new add-in hosting tests) | Claude's Linux test copy, PC's psycopg 3.3.9 | **83 passed** |
+| 28 Nov | Backend pytest on the PC | Development PC | Not reported yet |
 | 28 Nov | Frontend vitest and production build | Development PC | **Not run yet** (they can't run in Claude's environment: the PC's `node_modules` only has the Windows build of esbuild) |
 
 ### 6.2 App tests: rule conditions (28 Nov 2026, dev mode, PC backend after migration 0003)

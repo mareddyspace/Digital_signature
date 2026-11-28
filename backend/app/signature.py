@@ -128,6 +128,7 @@ def build(
     previous_code: str | None = None,
     dry_run: bool = False,
     static: bool = False,
+    source: str = "outlook",
 ) -> SignatureResult:
     """dry_run=True (policy tester, previews) never issues codes or writes audit events.
 
@@ -234,14 +235,14 @@ def build(
     if not dry_run:
         if code_row:
             integrity.seal_signature(db, code_row.code, version.id, sender.email, html_out)
-        if campaign:
+        if campaign and source == "outlook":
             campaign.impressions += 1
         db.add(SignatureEvent(
             employee_email=sender.email, department=department or "",
             template_name=template.name if template else "", policy_name=policy.name,
             recipient_type=rtype, message_type=message_type,
             campaign_id=campaign.id if campaign else None, disclaimers=len(disclaimers),
-            on_behalf=bool(delegation),
+            on_behalf=bool(delegation), source=source,
         ))
         db.commit()
     return SignatureResult(
